@@ -10,8 +10,26 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Chat, ChatMessage } from '@/types/chat';
 import { generateId } from '@/lib/utils';
+import { generateMemoryContext, addFact } from '@/lib/memory';
 
 const STORAGE_KEY = 'rag_chat_history';
+
+// 记忆压缩配置
+const COMPRESSION_ROUND_THRESHOLD = 10;  // 超过多少轮对话时触发压缩
+const COMPRESSION_TOKEN_THRESHOLD = 4000; // 超过多少 tokens 时触发压缩（使用更低的阈值）
+
+/**
+ * 压缩后的对话历史结构
+ */
+interface CompressedChat {
+  id: string;
+  title: string;
+  summary: string;           // LLM 生成的摘要
+  recentMessages: ChatMessage[];  // 最近几轮完整对话
+  createdAt: number;
+  updatedAt: number;
+  isCompressed: true;
+}
 
 /**
  * 估算 token 数量（简单估算）
@@ -40,6 +58,110 @@ function truncateMessages(msgs: ChatMessage[], maxTokens: number = 6000): ChatMe
     if (removed) totalTokens -= estimateTokens(removed.content) + 10;
   }
   return result;
+}
+
+/**
+ * 检查是否需要压缩对话历史
+ */
+function needsCompression(chat: Chat): boolean {
+  // 如果已经被压缩过，不再压缩
+  if ('isCompressed' in chat && chat.isCompressed) {
+    return false;
+  }
+
+  const messageCount = chat.messages.filter((m) => m.role === 'user').length;
+
+  // 超过轮次阈值
+  if (messageCount >= COMPRESSION_ROUND_THRESHOLD) {
+    return true;
+  }
+
+  // 超过 token 阈值
+  let totalTokens = 0;
+  for (const msg of chat.messages) {
+    totalTokens += estimateTokens(msg.content) + 10;
+  }
+
+  return totalTokens >= COMPRESSION_TOKEN_THRESHOLD;
+}
+
+/**
+ * 压缩对话历史（调用 LLM 生成摘要）
+ */
+async function compressChatHistory(
+  chat: Chat,
+  model: string
+): Promise<CompressedChat | null> {
+  try {
+    const response = await fetch('/api/summarize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: chat.messages,
+        model,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('压缩失败:', response.statusText);
+      return null;
+    }
+
+    const { summary, recentMessages } = await response.json();
+
+    return {
+      id: chat.id,
+      title: chat.title,
+      summary,
+      recentMessages,
+      createdAt: chat.createdAt,
+      updatedAt: Date.now(),
+      isCompressed: true as const,
+    };
+  } catch (error) {
+    console.error('压缩对话历史失败:', error);
+    return null;
+  }
+}
+
+/**
+ * 从对话历史中抽取重要信息并保存到记忆（使用后端 LLM API）
+ */
+async function extractAndSaveMemories(messages: ChatMessage[], model: string): Promise<number> {
+  try {
+    // 调用后端 API 进行智能抽取
+    const response = await fetch('/api/memory-extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, model }),
+    });
+
+    if (!response.ok) {
+      console.error('[记忆] 抽取 API 失败:', response.status);
+      return 0;
+    }
+
+    const { memories, summary } = await response.json();
+
+    if (!memories || memories.length === 0) {
+      return 0;
+    }
+
+    // 保存抽取的记忆
+    for (const mem of memories) {
+      addFact(mem.key, mem.value, mem.context || summary, mem.confidence || 0.8);
+    }
+
+    console.log(`[记忆] LLM 智能抽取 ${memories.length} 条记忆`);
+    if (summary) {
+      console.log(`[记忆] 对话摘要: ${summary.slice(0, 100)}...`);
+    }
+
+    return memories.length;
+  } catch (error) {
+    console.error('[记忆] 抽取失败:', error);
+    return 0;
+  }
 }
 
 /**
@@ -181,29 +303,54 @@ export function useChat() {
         content: input.trim(),
       };
 
-      setChats((prev) =>
-        prev.map((chat) => {
-          if (chat.id !== chatId) return chat;
-          return {
-            ...chat,
-            messages: [...chat.messages, userMessage],
-            updatedAt: Date.now(),
-          };
-        })
-      );
-
       setInput('');
       setIsLoading(true);
 
       // 创建 AbortController
       abortControllerRef.current = new AbortController();
 
-      // 使用 ref 获取最新 chats，避免闭包问题
-      const currentMessages = chatsRef.current.find((c) => c.id === chatId)?.messages || [];
-      const allMessages = truncateMessages([...currentMessages, userMessage]);
+      // 从 ref 读取当前聊天数据
+      const latestChat = chatsRef.current.find((c) => c.id === chatId);
+      const existingMessages = latestChat?.messages || [];
+      const existingSummary = (latestChat as any)?.isCompressed ? (latestChat as any)?.summary : undefined;
+      const isPreviouslyCompressed = (latestChat as any)?.isCompressed || false;
 
-      const assistantMessageId = generateId();
+      // 构建完整消息列表（用于 API 调用）
+      const allMessagesForApi = truncateMessages([...existingMessages, userMessage]);
+      const assistantPlaceholderId = generateId();
 
+      // 检查是否需要压缩（基于现有消息，不包含刚添加的用户消息）
+      if (!isPreviouslyCompressed && existingMessages.length > 0) {
+        const chatForCompression: Chat = {
+          id: chatId || '',
+          title: latestChat?.title || '',
+          messages: existingMessages,
+          createdAt: latestChat?.createdAt || Date.now(),
+          updatedAt: Date.now(),
+        };
+        if (needsCompression(chatForCompression)) {
+          // 异步压缩，不等待
+          compressChatHistory(chatForCompression, selectedModel).then((compressed) => {
+            if (compressed) {
+              setChats((prev) =>
+                prev.map((chat) => {
+                  if (chat.id === chatId) {
+                    return {
+                      ...chat,
+                      summary: compressed.summary,
+                      recentMessages: compressed.recentMessages,
+                      isCompressed: true,
+                    };
+                  }
+                  return chat;
+                })
+              );
+            }
+          });
+        }
+      }
+
+      // 添加用户消息和助手消息占位
       setChats((prev) =>
         prev.map((chat) => {
           if (chat.id !== chatId) return chat;
@@ -211,8 +358,9 @@ export function useChat() {
             ...chat,
             messages: [
               ...chat.messages,
+              userMessage,
               {
-                id: assistantMessageId,
+                id: assistantPlaceholderId,
                 role: 'assistant' as const,
                 content: '',
               },
@@ -231,20 +379,27 @@ export function useChat() {
         let apiEndpoint = '/api/chat';
         let requestBody: Record<string, unknown>;
 
+        // 加载用户记忆上下文
+        const memoryContext = generateMemoryContext();
+
         if (agent === true) {
           // Agent API - react 参数控制是否展示思考过程
           apiEndpoint = '/api/agent';
           requestBody = {
             query: input.trim(),
-            messages: allMessages.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
+            messages: allMessagesForApi.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
             model: selectedModel,
             react: react === true, // 传递 react 参数
+            summary: existingSummary || undefined,
+            memoryContext: memoryContext || undefined,
           };
+          console.log(`[📤 Agent 请求] query: "${input.trim().slice(0, 50)}..."`);
+          console.log(`[📤 Agent 请求] messages: ${allMessagesForApi.length} 条, summary: ${existingSummary ? '有' : '无'}, memoryContext: ${memoryContext ? '有' : '无'}`);
         } else if (useRAG) {
           // RAG API
           requestBody = {
             query: input.trim(),
-            messages: allMessages.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
+            messages: allMessagesForApi.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
             model: selectedModel,
             topK: 5,
             documentName,
@@ -253,16 +408,37 @@ export function useChat() {
             hybridSearch: hybridSearch || false,
             thinking: thinking || false,
             webSearch: webSearch || false,
+            summary: existingSummary || undefined,
+            memoryContext: memoryContext || undefined,
           };
+          console.log(`[📤 RAG 请求] query: "${input.trim().slice(0, 50)}..."`);
+          console.log(`[📤 RAG 请求] messages: ${allMessagesForApi.length} 条, summary: ${existingSummary ? '有' : '无'}, memoryContext: ${memoryContext ? '有' : '无'}`);
         } else {
           // 普通 Chat API
           requestBody = {
-            messages: allMessages.map((m) => ({ role: m.role, content: m.content })),
+            messages: allMessagesForApi.map((m) => ({ role: m.role, content: m.content })),
             model: selectedModel,
             thinking: thinking || false,
             webSearch: webSearch || false,
+            memoryContext: memoryContext || undefined,
           };
+          console.log(`[📤 Chat 请求] messages: ${allMessagesForApi.length} 条, memoryContext: ${memoryContext ? '有' : '无'}`);
         }
+
+        // 记忆日志
+        if (memoryContext) {
+          console.log(`[📦 记忆上下文]\n${memoryContext}`);
+        }
+        if (existingSummary) {
+          console.log(`[📦 摘要上下文]\n${existingSummary.slice(0, 200)}...`);
+        }
+
+        // 异步抽取对话中的重要信息并存储（使用 LLM API）
+        extractAndSaveMemories(allMessagesForApi, selectedModel).then((saved) => {
+          if (saved > 0) {
+            console.log(`[记忆] 已自动保存 ${saved} 条记忆`);
+          }
+        });
 
         const response = await fetch(apiEndpoint, {
           method: 'POST',
@@ -293,59 +469,63 @@ export function useChat() {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
+          const rawStr = decoder.decode(value);
+          // SSE 消息以 \n\n 分隔
+          const messages = rawStr.split('\n\n');
 
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6).trim();
-              if (data === '[DONE]' || !data) continue;
+          for (const msg of messages) {
+            const trimmed = msg.trim();
+            if (!trimmed || trimmed === 'data: [DONE]') continue;
+            if (!trimmed.startsWith('data: ')) continue;
 
-              try {
-                const parsed = JSON.parse(data);
-                if (!parsed || typeof parsed !== 'object') continue;
+            const data = trimmed.slice(6).trim();
+            if (!data || data === '[DONE]') continue;
 
-                if (isReactMode && parsed.type && parsed.content) {
-                  // ReAct 模式：处理自定义事件格式
-                  const { type, content } = parsed;
-                  const prefixMap: Record<string, string> = {
-                    thought: '💭 思考：',
-                    action: '🎯 行动：',
-                    observation: '👁️ 观察：',
-                    final_answer: '✨ 最终回答：',
-                  };
-                  const prefix = prefixMap[type] || '';
-                  assistantContent += `${prefix}${content}\n\n`;
-                } else {
-                  // 普通 Chat/Agent/RAG 模式：处理 OpenAI 格式
-                  const content = parsed.choices?.[0]?.delta?.content;
-                  if (content) {
-                    assistantContent += content;
-                  }
+            try {
+              const parsed = JSON.parse(data);
+              if (!parsed || typeof parsed !== 'object') continue;
+
+              if (isReactMode && parsed.type && parsed.content !== undefined) {
+                const { type, content } = parsed;
+                const prefixMap: Record<string, string> = {
+                  thought: '💭 思考：',
+                  action: '🎯 行动：',
+                  observation: '👁️ 观察：',
+                  final_answer: '✨ 最终回答：',
+                  final_answer_stream: '',
+                };
+                const prefix = prefixMap[type] || '';
+                assistantContent += `${prefix}${content}\n\n`;
+              } else if (isReactMode) {
+                // ignore unexpected format in react mode
+              } else {
+                const content = parsed.choices?.[0]?.delta?.content;
+                if (content) {
+                  assistantContent += content;
                 }
-
-                // 实时更新 UI
-                setChats((prev) =>
-                  prev.map((chat) => {
-                    if (chat.id !== chatId) return chat;
-                    return {
-                      ...chat,
-                      messages: chat.messages.map((m) =>
-                        m.id === assistantMessageId ? { ...m, content: assistantContent } : m
-                      ),
-                      updatedAt: Date.now(),
-                    };
-                  })
-                );
-              } catch {
-                // ignore parse errors
               }
+
+              // 实时更新 UI
+              setChats((prev) =>
+                prev.map((chat) => {
+                  if (chat.id !== chatId) return chat;
+                  return {
+                    ...chat,
+                    messages: chat.messages.map((m) =>
+                      m.id === assistantPlaceholderId ? { ...m, content: assistantContent } : m
+                    ),
+                    updatedAt: Date.now(),
+                  };
+                })
+              );
+            } catch {
+              // ignore parse errors
             }
           }
         }
 
         // 生成标题
-        if (allMessages.filter((m) => m.role === 'user').length === 1) {
+        if (allMessagesForApi.filter((m) => m.role === 'user').length === 1) {
           const title = userMessage.content.slice(0, 20) + (userMessage.content.length > 20 ? '...' : '');
           setChats((prev) =>
             prev.map((chat) => {
@@ -365,7 +545,7 @@ export function useChat() {
               return {
                 ...chat,
                 messages: chat.messages.map((m) =>
-                  m.id === assistantMessageId ? { ...m, content: finalContent } : m
+                  m.id === assistantPlaceholderId ? { ...m, content: finalContent } : m
                 ),
                 updatedAt: Date.now(),
               };
@@ -379,7 +559,7 @@ export function useChat() {
             if (chat.id !== chatId) return chat;
             return {
               ...chat,
-              messages: chat.messages.filter((m) => m.id !== assistantMessageId),
+              messages: chat.messages.filter((m) => m.id !== assistantPlaceholderId),
             };
           })
         );

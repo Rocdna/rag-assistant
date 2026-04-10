@@ -35,7 +35,20 @@ export async function POST(req: Request) {
       hybridSearch,   // 混合检索开关
       thinking,       // 深度思考开关
       webSearch,      // 联网搜索开关
+      summary,        // 对话历史摘要（记忆压缩）
+      memoryContext,  // 用户记忆上下文
     } = await req.json();
+
+    console.log('\n========== [📚 RAG API 入口] ==========');
+    console.log(`[入口] query: "${query}"`);
+    console.log(`[入口] messages: ${conversationMessages?.length || 0} 条`);
+    console.log(`[入口] useRAG: ${useRAG}, documentName: ${documentName || '全部'}`);
+    console.log(`[入口] thinking: ${thinking}, webSearch: ${webSearch}, queryExpansion: ${queryExpansion}, hybridSearch: ${hybridSearch}`);
+    console.log(`[入口] summary: ${summary ? '有' : '无'}`);
+    console.log(`[入口] memoryContext: ${memoryContext ? '有' : '无'}`);
+    if (memoryContext) {
+      console.log(`[入口] memoryContext 内容:\n${memoryContext}`);
+    }
 
     if (!query) {
       return Response.json({ error: '问题不能为空' }, { status: 400 });
@@ -127,7 +140,7 @@ export async function POST(req: Request) {
     }
 
     // 构建消息
-    const systemPrompt = `【角色】你是一个专业的本地知识库问答助手
+    let systemPrompt = `【角色】你是一个专业的本地知识库问答助手
 
 【任务】根据提供的上下文信息，准确回答用户问题
 
@@ -150,6 +163,16 @@ export async function POST(req: Request) {
 - 不要使用 --- 或 --- 分隔线
 - 不要使用大篇幅列表（超过5项）
 - 不要使用表格语法`;
+
+    // 如果有对话摘要或记忆上下文，追加到 system prompt
+    if (summary) {
+      systemPrompt += `\n\n【对话历史摘要】\n${summary}`;
+    }
+
+    // 如果有用户记忆上下文，追加到 system prompt
+    if (memoryContext) {
+      systemPrompt += `\n\n${memoryContext}`;
+    }
 
     // 构建用户消息：上下文 + 历史 + 当前问题
     let userMessageContent = '';

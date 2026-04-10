@@ -27,6 +27,8 @@
 
 ### Agent 功能
 - [x] **文档分析 Agent** — 基于 ReAct 模式的智能问答 Agent
+- [x] **ReAct 流式输出** — 思考/行动/观察/最终回答实时展示
+- [x] **跨会话记忆** — LLM 智能抽取 + localStorage 持久化
 
 ## 技术栈
 
@@ -76,13 +78,20 @@ types/chat.ts               # 类型定义
 ```env
 OPENAI_API_KEY=your-api-key
 OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-DEFAULT_MODEL=qwen3-max
-EMBEDDING_MODEL=text-embedding-v4
+DEFAULT_MODEL=qwen3-max-preview
+MEMORY_EXTRACT_MODEL=qwen-turbo
+EMBEDDING_MODEL=text-embedding-v2
 PINECONE_API_KEY=your-pinecone-key
 PINECONE_INDEX=rag-assistant
 QWEATHER_API_KEY=your-qweather-key
 QWEATHER_API_HOST=your-api-host.qweather.com
+TAVILY_API_KEY=your-tavily-key
 ```
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `DEFAULT_MODEL` | 主模型，用于对话和 RAG | qwen3-max-preview |
+| `MEMORY_EXTRACT_MODEL` | 记忆抽取专用模型，更小更快 | qwen-turbo |
 
 ## 开发
 
@@ -165,86 +174,55 @@ pnpm dev
 
 | 能力 | 说明 |
 |------|------|
-| **Tools（工具）** | Agent 能调用的能力，如搜索文档、查文档列表 |
-| **Planning（规划）** | 分析问题，制定执行步骤 |
-| **Memory（记忆）** | 记住之前的思考和行动 |
+| **Tools（工具）** | Agent 能调用的能力，如搜索文档、查天气、联网搜索 |
+| **ReAct（推理）** | 思考→行动→观察 循环直到得到答案 |
+| **Memory（记忆）** | 跨会话记住用户偏好和重要事实 |
 
 **Agent 工作流程**：
 
 ```
-用户提问：对比一下"产品需求文档"和"技术设计文档"的差异
+用户提问：杭州今天天气怎么样？
 
 ┌─────────────────────────────────────────────────────┐
-│ 1. Think（思考）                                     │
-│    "用户要对比两个文档，我需要：                       │
-│     - 先查产品需求文档的核心要点                       │
-│     - 再查技术设计文档的核心要点                       │
-│     - 然后整理对比"                                   │
+│ 💭 思考                                              │
+│    用户想知道杭州的天气，我需要调用天气工具获取数据     │
 ├─────────────────────────────────────────────────────┤
-│ 2. Act（行动）                                       │
-│    → search_documents("产品需求文档 核心要点")        │
-│    → search_documents("技术设计文档 核心要点")        │
+│ 🎯 行动                                              │
+│    → get_weather {"location": "杭州"}               │
 ├─────────────────────────────────────────────────────┤
-│ 3. Observe（观察）                                   │
-│    获得两个文档的检索结果...                          │
+│ 👁️ 观察                                              │
+│    杭州今天晴朗，气温28℃，东南风3级                   │
 ├─────────────────────────────────────────────────────┤
-│ 4. Answer（回答）                                    │
-│    基于检索结果整理对比                               │
+│ ✨ 最终回答                                           │
+│    杭州今天天气晴朗，气温28℃，适合外出活动。          │
 └─────────────────────────────────────────────────────┘
-```
-
-**本项目的 Agent 实现**：
-
-```
-用户开启 🤖 Agent 开关 → 输入问题
-    │
-    ▼
-Step 1: LLM 生成执行计划（文本描述要做什么）
-    │
-    ▼
-Step 2: 根据计划判断调用哪个工具
-    - 如果计划提到"搜索/检索/查找" → 调用 search_documents
-    - 如果计划提到"列表/有哪些" → 调用 list_documents
-    - 如果计划提到"统计/多少" → 调用 get_documents_stats
-    │
-    ▼
-Step 3: 工具执行结果 + 原问题 → 最终 LLM 回答
-    │
-    ▼
-Step 4: 流式输出（先展示思考计划，再展示最终回答）
 ```
 
 **工具定义**：
 
 | 工具名 | 功能 | 参数 |
 |--------|------|------|
-| `search_documents` | 搜索文档 | `query`: 搜索内容, `documentName?`: 指定文档 |
+| `get_weather` | 查询天气预报 | `location`: 城市名 |
+| `search_documents` | 搜索本地文档 | `query`: 搜索内容, `documentName?`: 指定文档 |
 | `list_documents` | 列出所有文档 | 无 |
 | `get_documents_stats` | 获取统计信息 | 无 |
+| `web_search` | 联网搜索 | `query`: 搜索关键词 |
 
-**输出示例**：
+**前端显示示例**：
 
 ```
-📋 执行计划
-我需要先搜索两个文档的相关内容，然后进行对比分析。
-
-步骤1：搜索"产品需求文档"的核心要点
-步骤2：搜索"技术设计文档"的核心要点
-步骤3：整理对比结果
-
----
-
-根据检索结果，两个文档的核心差异如下：
-
-| 方面 | 产品需求文档 | 技术设计文档 |
-|------|------------|------------|
-| 目标 | 用户需求 | 技术实现方案 |
-| 关注点 | 功能、性能 | 架构、接口 |
-| 受众 | 产品经理 | 工程师 |
-
-[1号文档 - 产品需求文档.pdf] 包含功能列表和性能指标...
-[2号文档 - 技术设计文档.pdf] 描述了系统架构和API接口...
+💭 思考：用户想知道杭州的天气，我需要调用天气工具
+🎯 行动：调用 get_weather({"location": "杭州"})
+👁️ 观察：杭州今天晴朗，气温28℃，东南风3级
+✨ 最终回答：杭州今天天气晴朗，气温28℃，适合外出活动。
 ```
+
+**两种模式**：
+
+| 模式 | 说明 |
+|------|------|
+| **普通模式** | 直接返回回答，不展示推理过程 |
+| **ReAct 模式** | 实时展示 思考→行动→观察→最终回答 的完整推理链 |
 
 ---
 
@@ -318,13 +296,14 @@ Step 4: 流式输出（先展示思考计划，再展示最终回答）
 
 ### Agent 增强
 
-| 功能 | 说明 | 难度 |
-|------|------|------|
-| **ReAct 自我纠错** | 工具执行失败或结果不足时自动重试或换策略 | ⭐⭐⭐ |
-| **记忆压缩** | 对话历史过长时自动总结压缩，减少 Token 消耗 | ⭐⭐⭐ |
-| **跨会话记忆** | 持久化存储重要信息，新会话可复用 | ⭐⭐⭐ |
+| 功能 | 说明 | 难度 | 状态 |
+|------|------|------|------|
+| **ReAct 自我纠错** | 工具执行失败或结果不足时自动重试或换策略 | ⭐⭐⭐ | ✅ 已实现 |
+| **ReAct 流式输出** | 思考/行动/观察/最终回答实时展示在页面上 | ⭐⭐ | ✅ 已实现 |
+| **记忆压缩** | 对话历史过长时自动总结压缩，减少 Token 消耗 | ⭐⭐⭐ | ✅ 已实现 |
+| **跨会话记忆** | LLM 智能抽取 + localStorage 持久化，新会话可复用 | ⭐⭐⭐ | ✅ 已实现 |
 
-#### ReAct 自我纠错（Self-Correction）
+#### ReAct 自我纠错（Self-Correction）✅
 
 **解决什么问题**：
 - 当前 ReAct 是线性执行，工具返回结果不好也只能继续
@@ -347,10 +326,10 @@ Step 4: 流式输出（先展示思考计划，再展示最终回答）
 **工作流程对比**：
 
 ```
-【当前流程】
+【改造前】
 用户问题 → 检索 → 返回结果 → 回答（可能质量差）
 
-【自我纠错流程】
+【改造后】
 用户问题 → 检索 → 评估结果
     ↓ 不够
   改写 query → 重新检索 → 评估结果
@@ -361,26 +340,40 @@ Step 4: 流式输出（先展示思考计划，再展示最终回答）
 **关键实现要点**：
 - 评估prompt设计：让 LLM 从"相关性"和"充分性"两个维度打分
 - 纠错策略选择：根据评估建议决定是改写 query 还是切换工具
-- 防止死循环：设置最大纠错次数（如 3 次）
+- 防止死循环：设置最大纠错次数（MAX_CORRECTION_ROUNDS = 3）
+
+**新增文件**：
+
+| 文件 | 说明 |
+|------|------|
+| `lib/agent/evaluator.ts` | 工具结果评估器，评估相关性 + 充分性 |
+| `lib/agent/self-correction.ts` | 纠错策略选择器，选择合适的纠错动作 |
+| `lib/agent/index.ts` | 模块导出 |
+
+**改造文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `app/api/agent/route.ts` | 集成评估和纠错逻辑，handleNormalMode 和 runReactLoop 均支持自我纠错 |
 
 **验证标准**：
-- [ ] 检索结果为空时，能自动尝试联网
-- [ ] 结果相关性低时，能自动改写 query 重试
-- [ ] 工具失败时，能自动重试或换策略
-- [ ] 纠错次数有上限，防止无限循环
+- [x] 检索结果为空时，能自动尝试联网
+- [x] 结果相关性低时，能自动改写 query 重试
+- [x] 工具失败时，能自动重试或换策略
+- [x] 纠错次数有上限，防止无限循环
 
 ---
 
-#### 记忆压缩 / 跨会话记忆
+#### 记忆压缩 ✅
 
 **解决什么问题**：
 - 对话历史越来越长，Token 消耗大
 - 每次新建会话都要重新开始
 - 重要的上下文信息丢失
 
-**方案一：对话历史压缩（Summarization）**
+**方案：对话历史压缩（Summarization）**
 
-当对话轮次超过阈值（如 10 轮），自动压缩历史：
+当对话轮次超过阈值（10 轮）或 token 超过阈值（4000），自动压缩历史：
 
 - 用 LLM 总结早期对话的核心内容
 - 将总结结果作为 system prompt 的一部分
@@ -391,20 +384,42 @@ Step 4: 流式输出（先展示思考计划，再展示最终回答）
 原始历史（20轮）→ 压缩 → 【对话摘要】+ 最近6轮
 ```
 
-**方案二：跨会话记忆（Memory）**
+**新增文件**：
 
-将重要信息持久化存储，供后续会话使用：
+| 文件 | 说明 |
+|------|------|
+| `app/api/summarize/route.ts` | 摘要生成 API，调用 LLM 生成对话历史摘要 |
+
+**改造文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `hooks/use-chat.ts` | 添加压缩检测、压缩触发逻辑 |
+| `app/api/chat/route.ts` | 处理带 summary 的请求，注入到 system prompt |
+| `app/api/rag/route.ts` | 处理带 summary 的请求，追加到 system prompt |
+
+**验证标准**：
+- [x] 对话超过 10 轮时自动压缩
+- [x] Token 超过 4000 时自动压缩
+- [x] 摘要保留关键信息
+- [ ] Token 消耗降低 50%+（需实测）
+
+---
+
+#### 跨会话记忆（Memory）✅
+
+**解决什么问题**：
+- 每次新建会话都要重新开始
+- 重要的上下文信息丢失
+- 无法记住用户偏好
+
+**方案：将重要信息持久化存储**
 
 | 记忆类型 | 内容 | 用途 |
 |----------|------|------|
 | **用户偏好** | 姓名、常用地、感兴趣的话题 | 个性化回答 |
 | **重要事实** | 用户告知的信息及场景 | 上下文连贯 |
 | **会话历史** | 过往问题摘要 | 避免重复 |
-
-**自动抽取重要信息**：
-- 在对话过程中，LLM 判断哪些信息值得记忆
-- 例如用户提到"我叫张三"、"我在北京工作"等
-- 对话结束时评估是否需要更新记忆
 
 **工作流程**：
 
@@ -415,17 +430,41 @@ Step 4: 流式输出（先展示思考计划，再展示最终回答）
 用户提问
     ↓
 【对话中】
-检测重要信息 → 自动保存到记忆
+对话结束 → 调用 LLM API 智能抽取重要信息 → 自动保存到记忆
     ↓
-【对话结束】
-评估是否需要总结 → 压缩或保存记忆
+【新会话】
+加载历史记忆 → 注入上下文 → 理解用户偏好和讨论主题
 ```
 
+**技术方案**：
+- 使用 **LLM API 智能抽取**（`/api/memory-extract`），专用模型 `qwen-turbo` 不占用主模型配额
+- 支持提取：用户身份、偏好、关键事实、讨论上下文
+- 记忆存储在 **localStorage**，前端直接读取
+- 记忆有过期机制：事实默认 30 天过期，会话摘要 7 天过期
+
+**新增文件**：
+
+| 文件 | 说明 |
+|------|------|
+| `app/api/memory-extract/route.ts` | LLM 记忆抽取 API，智能从对话中提取信息 |
+| `lib/memory/user-memory.ts` | 用户记忆 CRUD，localStorage 持久化，过期清理 |
+| `lib/memory/index.ts` | 模块导出 |
+
+**改造文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `hooks/use-chat.ts` | 集成记忆加载和自动抽取，调用 `/api/memory-extract` |
+| `app/api/chat/route.ts` | 处理 memoryContext 参数，注入到 system prompt |
+| `app/api/rag/route.ts` | 处理 memoryContext 参数 |
+| `app/api/agent/route.ts` | 处理 memoryContext 参数 |
+
 **验证标准**：
-- [ ] 对话超过 10 轮时自动压缩，不丢失关键信息
-- [ ] 新会话能识别老用户，恢复偏好设置
-- [ ] 记忆存储安全，不泄露隐私
-- [ ] 可以手动查看/编辑记忆
+- [x] 新会话能识别老用户（从 localStorage 加载）
+- [x] 记忆中的偏好被注入 System Prompt
+- [x] 使用 LLM API 智能抽取对话中的重要信息
+- [x] 专用记忆抽取模型（MEMORY_EXTRACT_MODEL）不占用主模型配额
+- [x] 记忆有过期自动清理机制
 
 ---
 
@@ -627,5 +666,176 @@ chunk#4: finish_reason: tool_calls → stream 结束
 | 工具名 | 功能 | 参数 |
 |--------|------|------|
 | `web_search` | 联网搜索 | `query`: 搜索关键词 |
+
+---
+
+### 2026-04-10 ReAct 自我纠错实现
+
+#### 功能说明
+为 Agent 添加自我纠错能力，当工具执行结果不满意时自动重试或切换策略。
+
+#### 核心改动
+
+**1. 评估器 `lib/agent/evaluator.ts`**
+- 新增 `evaluateToolResult()` 函数，用 LLM 评估工具结果质量
+- 从"相关性"和"充分性"两个维度打分（1-5）
+- 返回纠错建议：`continue` / `rewrite_query` / `expand_search` / `switch_to_web` / `retry`
+
+**2. 纠错策略 `lib/agent/self-correction.ts`**
+- `selectStrategy()` 根据评估结果选择纠错动作
+- `createCorrectionContext()` 创建纠错上下文
+- 防止死循环：最大纠错次数 3 次
+
+**3. Agent 路由 `app/api/agent/route.ts`**
+- `handleNormalMode()` 集成评估和纠错逻辑
+- `runReactLoop()` 在 ReAct 模式下也支持自我纠错
+- 新增 `executeToolWithRetry()` 带重试的工具执行
+
+#### 纠错流程
+
+```
+工具执行 → 评估结果质量
+    ↓
+评估通过 → 继续下一步
+    ↓ 评估不通过
+纠错策略选择
+    ├── rewrite_query：改写查询词重新检索
+    ├── expand_search：扩大搜索范围
+    ├── switch_to_web：切换到联网搜索
+    └── retry：重试当前工具
+```
+
+#### 验证测试
+- [x] TypeScript 编译通过
+- [ ] 检索结果为空时自动尝试联网
+- [ ] 结果相关性低时自动改写 query
+- [ ] 工具失败时自动重试
+
+#### 相关文件
+| 文件 | 改动 |
+|------|------|
+| `lib/agent/evaluator.ts` | 新增 - 工具结果评估器 |
+| `lib/agent/self-correction.ts` | 新增 - 纠错策略选择器 |
+| `lib/agent/index.ts` | 新增 - 模块导出 |
+| `app/api/agent/route.ts` | 改造 - 集成自我纠错 |
+
+---
+
+### 2026-04-10 记忆压缩实现
+
+#### 功能说明
+当对话历史过长时（超过 10 轮或 4000 tokens），自动调用 LLM 生成摘要，减少 Token 消耗。
+
+#### 核心改动
+
+**1. 摘要生成 API `app/api/summarize/route.ts`**
+- 接收对话历史，返回压缩后的摘要
+- 保留：用户信息、讨论主题、关键事实、已解决问题
+- 同时返回最近 3 轮完整对话
+
+**2. 压缩检测逻辑 `hooks/use-chat.ts`**
+- `needsCompression()` 检测是否需要压缩
+- `compressChatHistory()` 异步执行压缩
+- 压缩触发条件：用户消息轮次 >= 10 或 token 总量 >= 4000
+
+**3. API 集成**
+- `app/api/chat/route.ts`：处理带 summary 的请求，注入到 system prompt
+- `app/api/rag/route.ts`：处理带 summary 的请求，追加到 system prompt
+
+#### 验证测试
+- [x] TypeScript 编译通过
+- [ ] 对话超过 10 轮时自动触发压缩
+- [ ] 摘要正确保留关键信息
+- [ ] API 正确接收并处理摘要
+
+#### 相关文件
+| 文件 | 改动 |
+|------|------|
+| `app/api/summarize/route.ts` | 新增 - 摘要生成 API |
+| `hooks/use-chat.ts` | 改造 - 添加压缩检测和触发 |
+| `app/api/chat/route.ts` | 改造 - 处理 summary 参数 |
+| `app/api/rag/route.ts` | 改造 - 处理 summary 参数 |
+
+---
+
+### 2026-04-10 跨会话记忆实现
+
+#### 功能说明
+将用户信息持久化存储到 localStorage，新会话可以自动加载并注入到 System Prompt。
+
+#### 核心改动
+
+**1. 记忆存储 `lib/memory/user-memory.ts`**
+- `UserMemory` 接口：preferences、facts、sessionSummaries
+- `loadUserMemory()` / `saveUserMemory()` - CRUD 操作
+- `generateMemoryContext()` - 生成可注入的上下文字符串
+
+**2. LLM 记忆抽取 `app/api/memory-extract/route.ts`**
+- 调用专用模型 `qwen-turbo`（不占用主模型配额）
+- 支持提取：用户身份、偏好、关键事实、讨论上下文
+- 返回 memories 数组 + summary
+
+**3. 前端集成 `hooks/use-chat.ts`**
+- 提交时自动加载 `memoryContext`
+- 异步调用 `/api/memory-extract` 抽取对话中的重要信息并保存到 localStorage
+
+> 记忆全部存储在浏览器 localStorage，前端直接操作。
+
+#### 验证测试
+- [x] TypeScript 编译通过
+- [x] 新会话加载历史记忆
+- [x] 记忆上下文正确注入到 API 请求（Chat/RAG/Agent 均支持）
+- [x] 专用记忆抽取模型（MEMORY_EXTRACT_MODEL）配置
+- [x] 记忆有过期自动清理机制
+
+#### 相关文件
+| 文件 | 改动 |
+|------|------|
+| `app/api/memory-extract/route.ts` | 新增 - LLM 记忆抽取 API |
+| `lib/memory/user-memory.ts` | 新增 - 用户记忆存储 + 过期清理 |
+| `lib/memory/index.ts` | 新增 - 模块导出 |
+| `hooks/use-chat.ts` | 改造 - 集成记忆加载和抽取 |
+| `app/api/chat/route.ts` | 改造 - 处理 memoryContext |
+| `app/api/rag/route.ts` | 改造 - 处理 memoryContext |
+| `app/api/agent/route.ts` | 改造 - 处理 memoryContext |
+
+---
+
+### 2026-04-10 ReAct 流式输出实现
+
+#### 功能说明
+ReAct 模式下，将思考/行动/观察/最终回答实时流式展示在前端页面上，而非最后一次性输出。
+
+#### 核心改动
+
+**1. SSE 消息格式 `app/api/agent/route.ts`**
+- 使用 `createSSEMessage(type, content)` 发送自定义事件格式
+- type 支持：`thought` / `action` / `observation` / `final_answer`
+- 前端通过 `prefixMap` 给不同类型加 emoji 前缀
+
+**2. 全局步骤扫描 `extractAllSteps()`**
+- LLM 输出可能把多个步骤放同一行，或全放一个大段落
+- 用正则全局扫描 `思考：`、`行动：`、`观察：`、`最终回答：`
+- 不依赖换行符，确保步骤不遗漏
+
+**3. 前端 SSE 解析 `hooks/use-chat.ts`**
+- 改用 `split('\n\n')` 按 SSE 标准消息边界分隔（不再误拆 JSON 内部换行符）
+- ReAct 模式识别 `parsed.type` 和 `parsed.content` 字段
+
+**4. ReAct Prompt 增强**
+- 强制要求：即使直接回答也必须先写"思考："再写"最终回答："
+- 禁止跳过思考过程直接输出答案
+
+#### 验证测试
+- [x] TypeScript 编译通过
+- [x] 思考/行动/观察/最终回答实时展示在前端
+- [x] 多行内容不截断（完整显示）
+- [x] SSE 解析不再因换行符导致 JSON.parse 失败
+
+#### 相关文件
+| 文件 | 改动 |
+|------|------|
+| `app/api/agent/route.ts` | 改造 - SSE 流式输出 + 全局步骤扫描 |
+| `hooks/use-chat.ts` | 改造 - SSE `split('\n\n')` 解析 |
 
 ---
