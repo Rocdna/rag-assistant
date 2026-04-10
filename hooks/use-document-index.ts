@@ -288,18 +288,64 @@ export function useDocumentIndex(options: UseDocumentIndexOptions = {}) {
   }, []);
 
   /**
-   * 文件选择后的处理
+   * 文件选择后的处理 - 仅上传，不自动索引
    */
   const handleFileSelect = useCallback((
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = e.target.files?.[0];
     if (file) {
-      uploadAndIndex(file);
+      uploadFile(file).then((doc) => {
+        if (!doc) return;
+        // 添加到文档列表（标记为未索引）
+        setDocuments((prev) => {
+          // 如果已存在同名文档，先删除云端旧数据
+          const existingIndex = prev.findIndex((d) => d.name === doc.name);
+          if (existingIndex >= 0) {
+            const existingDoc = prev[existingIndex];
+            // 异步删除云端旧数据
+            fetch('/api/delete', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ documentId: existingDoc.id }),
+            }).catch(err => console.error('删除旧文档失败:', err));
+
+            return [...prev.slice(0, existingIndex), { ...doc, indexed: false }, ...prev.slice(existingIndex + 1)];
+          }
+          return [{ ...doc, indexed: false }, ...prev];
+        });
+        onUploadComplete?.(doc);
+      });
     }
     // 重置 input 以便下次选择相同文件
     e.target.value = '';
-  }, [uploadAndIndex]);
+  }, [uploadFile, onUploadComplete]);
+
+  /**
+   * 拖拽文件后的处理 - 仅上传，不自动索引
+   */
+  const handleDrop = useCallback(async (file: File): Promise<void> => {
+    const doc = await uploadFile(file);
+    if (!doc) return;
+    // 添加到文档列表（标记为未索引）
+    setDocuments((prev) => {
+      // 如果已存在同名文档，先删除云端旧数据
+      const existingIndex = prev.findIndex((d) => d.name === doc.name);
+      if (existingIndex >= 0) {
+        const existingDoc = prev[existingIndex];
+        // 异步删除云端旧数据
+        fetch('/api/delete', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ documentId: existingDoc.id }),
+        }).catch(err => console.error('删除旧文档失败:', err));
+
+        return [...prev.slice(0, existingIndex), { ...doc, indexed: false }, ...prev.slice(existingIndex + 1)];
+      }
+      return [{ ...doc, indexed: false }, ...prev];
+    });
+    onUploadComplete?.(doc);
+  }, [uploadFile, onUploadComplete]);
 
   return {
     // State
@@ -316,6 +362,7 @@ export function useDocumentIndex(options: UseDocumentIndexOptions = {}) {
     clearAllDocuments,
     handleUploadClick,
     handleFileSelect,
+    handleDrop,
     validateFile,
     SUPPORTED_TYPES,
   };

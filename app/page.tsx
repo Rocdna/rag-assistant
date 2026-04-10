@@ -64,7 +64,7 @@ export default function ChatPage() {
     indexingId,
     indexingProgress,
     fileInputRef,
-    uploadAndIndex,
+    handleDrop,
     indexDocument,
     deleteDocument,
     clearAllDocuments,
@@ -137,11 +137,12 @@ export default function ChatPage() {
     setIsDragover(false);
     const file = e.dataTransfer.files[0];
     if (file && !isMobile) {
-      uploadAndIndex(file);
+      // 仅上传，不自动索引（用户需手动点击索引按钮）
+      handleDrop(file);
       setUploadSuccess(`文档 "${file.name}" 上传成功`);
       setTimeout(() => setUploadSuccess(null), 3000);
     }
-  }, [isMobile, uploadAndIndex]);
+  }, [isMobile, handleDrop]);
 
   // 模式切换时同步 agent 状态
   const handleModeChange = useCallback((newMode: ChatMode) => {
