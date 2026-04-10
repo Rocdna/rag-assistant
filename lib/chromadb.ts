@@ -72,6 +72,67 @@ interface VectorRecord {
 
 type ProgressCallback = (processed: number, total: number) => void;
 
+// ============================================================
+// 工具函数：带重试的请求
+// ============================================================
+
+/**
+ * 带重试的 Pinecone 操作
+ */
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  options: {
+    maxRetries?: number;
+    initialDelayMs?: number;
+    maxDelayMs?: number;
+    operationName?: string;
+  } = {}
+): Promise<T> {
+  const {
+    maxRetries = 3,
+    initialDelayMs = 1000,
+    maxDelayMs = 10000,
+    operationName = 'operation',
+  } = options;
+
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // 如果已经超过最大重试次数
+      if (attempt >= maxRetries) {
+        console.error(`[Pinecone] ${operationName} 失败，已重试 ${maxRetries} 次:`, lastError.message);
+        throw lastError;
+      }
+
+      // 判断是否是网络/超时错误，可以重试
+      const isRetryable =
+        lastError.message.includes('fetch failed') ||
+        lastError.message.includes('timeout') ||
+        lastError.message.includes('ECONNRESET') ||
+        lastError.message.includes('ETIMEDOUT') ||
+        lastError.message.includes('ConnectTimeoutError') ||
+        lastError.message.includes('PineconeConnectionError');
+
+      if (!isRetryable) {
+        console.error(`[Pinecone] ${operationName} 失败（非网络错误，不重试）:`, lastError.message);
+        throw lastError;
+      }
+
+      // 指数退避
+      const delay = Math.min(initialDelayMs * Math.pow(2, attempt), maxDelayMs);
+      console.warn(`[Pinecone] ${operationName} 第 ${attempt + 1} 次尝试失败，${delay}ms 后重试...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
 /**
  * 添加文档块到向量数据库（分批处理）
  *
@@ -118,8 +179,15 @@ export async function addDocumentChunks(
       },
     }));
 
-    // 批量 upsert 到 Pinecone
-    await index.upsert({ records: vectors });
+    // 批量 upsert 到 Pinecone（带重试）
+    await withRetry(
+      () => index.upsert({ records: vectors }),
+      {
+        maxRetries: 3,
+        initialDelayMs: 2000,
+        operationName: `批次 ${batchIdx + 1}/${totalBatches} upsert`,
+      }
+    );
     console.log(`[Pinecone] 批次 ${batchIdx + 1}/${totalBatches} 上传完成 (${vectors.length} 个向量)`);
 
     // 报告进度
@@ -155,12 +223,20 @@ export async function retrieveRelevantChunks(
     ? { documentName: { $eq: filterDocumentName } }
     : undefined;
 
-  const results = await index.query({
-    vector: queryEmbedding,
-    topK,
-    filter,
-    includeMetadata: true,
-  });
+  // 查询 Pinecone（带重试）
+  const results = await withRetry(
+    () => index.query({
+      vector: queryEmbedding,
+      topK,
+      filter,
+      includeMetadata: true,
+    }),
+    {
+      maxRetries: 2,
+      initialDelayMs: 1000,
+      operationName: 'query',
+    }
+  );
 
   // 格式化返回结果
   return (results.matches || []).map(match => ({
@@ -183,10 +259,17 @@ export async function deleteDocumentChunks(documentId: string): Promise<void> {
   const index = getIndex();
 
   try {
-    // 通过 filter 直接删除匹配的向量
-    await index.deleteMany({
-      filter: { documentId: { $eq: documentId } },
-    });
+    // 通过 filter 直接删除匹配的向量（带重试）
+    await withRetry(
+      () => index.deleteMany({
+        filter: { documentId: { $eq: documentId } },
+      }),
+      {
+        maxRetries: 2,
+        initialDelayMs: 1000,
+        operationName: 'deleteMany',
+      }
+    );
   } catch (error) {
     console.error('删除文档块失败:', error);
   }
