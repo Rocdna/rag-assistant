@@ -226,7 +226,36 @@ export default function ChatPage() {
             >
               ☰
             </button>
-            {!isMobile && <h1>{currentChat?.title || '新对话'}</h1>}
+
+            {/* 标题 - 移动端显示当前对话标题或模式标识 */}
+            {isMobile ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {agent ? (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '4px 10px',
+                      backgroundColor: 'var(--accent-green-subtle)',
+                      border: '1px solid var(--accent-green-dim)',
+                      borderRadius: 'var(--radius-full)',
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      color: 'var(--accent-green)',
+                    }}
+                  >
+                    🤖 Agent 模式
+                  </span>
+                ) : (
+                  <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
+                    {currentChat?.title || '新对话'}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <h1>{currentChat?.title || '新对话'}</h1>
+            )}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

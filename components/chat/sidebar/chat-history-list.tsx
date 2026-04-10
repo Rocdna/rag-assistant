@@ -15,20 +15,14 @@ interface ChatHistoryListProps {
 }
 
 export function ChatHistoryList({ chats, currentChatId, onSwitchChat, onDeleteChat }: ChatHistoryListProps) {
-  const [isMobile, setIsMobile] = useState(false);
+  // 过滤掉没有消息的空对话（新建的对话如果没有发消息就不显示）
+  const nonEmptyChats = chats.filter((chat) => chat.messages.length > 0);
 
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth <= 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  if (chats.length === 0) return null;
+  if (nonEmptyChats.length === 0) return null;
 
   return (
     <div className="chat-history-list">
-      {chats.map((chat) => (
+      {nonEmptyChats.map((chat) => (
         <div
           key={chat.id}
           onClick={() => onSwitchChat(chat.id)}

@@ -103,12 +103,19 @@ export function Sidebar({
             />
           )}
 
-          {/* 空状态 */}
-          {documents.length === 0 && chats.length === 0 && (
-            <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '20px 0', fontSize: '13px' }}>
-              暂无内容
+          {/* 空状态 - 当文档为空且没有非空对话时显示 */}
+          {documents.length === 0 && chats.filter((c) => c.messages.length > 0).length === 0 && (
+            <div
+              style={{
+                textAlign: 'center',
+                color: 'var(--text-tertiary)',
+                padding: '20px 0',
+                fontSize: '13px',
+              }}
+            >
+              暂无历史对话
               <br />
-              <span style={{ fontSize: '12px' }}>上传文件开始构建知识库</span>
+              <span style={{ fontSize: '12px' }}>开始对话或上传文档</span>
             </div>
           )}
         </div>
