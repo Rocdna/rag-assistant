@@ -8,6 +8,9 @@ import { MessageList } from '@/components/chat/message-list';
 import { ChatInput } from '@/components/chat/chat-input';
 import { Sidebar } from '@/components/chat/sidebar';
 import { SettingsModal } from '@/components/chat/settings-modal';
+import { ModeTabs, type ChatMode } from '@/components/chat/header/mode-tabs';
+import { ContextBar } from '@/components/chat/header/context-bar';
+import { EmptyState } from '@/components/chat/message/empty-state';
 
 export default function ChatPage() {
   const {
@@ -31,13 +34,22 @@ export default function ChatPage() {
 
   // 移动端默认侧边栏关闭
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+
+  // 模式状态
+  const [mode, setMode] = useState<ChatMode>('chat');
+
+  // RAG 配置
   const [useRAG, setUseRAG] = useState(true);
   const [selectedDocName, setSelectedDocName] = useState<string | null>(null);
+
+  // 功能开关
   const [queryExpansion, setQueryExpansion] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
   const [agent, setAgent] = useState(false);
   const [react, setReact] = useState(false);
+
+  // UI 状态
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [isDragover, setIsDragover] = useState(false);
@@ -84,7 +96,6 @@ export default function ChatPage() {
   // 提交处理
   const onSubmit = useCallback(
     async (e: React.FormEvent) => {
-      // 如果没有上传文档，自动切换到非 RAG 模式
       const hasIndexedDocs = documents.some(d => d.indexed);
       const shouldUseRAG = useRAG && hasIndexedDocs;
 
@@ -121,6 +132,21 @@ export default function ChatPage() {
       setTimeout(() => setUploadSuccess(null), 3000);
     }
   }, [isMobile, uploadAndIndex]);
+
+  // 模式切换时同步 agent 状态
+  const handleModeChange = useCallback((newMode: ChatMode) => {
+    setMode(newMode);
+    if (newMode === 'agent') {
+      setAgent(true);
+    }
+  }, []);
+
+  const handleAgentChange = useCallback((enabled: boolean) => {
+    setAgent(enabled);
+    if (enabled && mode === 'chat') {
+      // 可选：切换到 Agent 模式
+    }
+  }, [mode]);
 
   return (
     <div className="chat-container">
@@ -178,8 +204,8 @@ export default function ChatPage() {
         onDragLeave={handleMainDragLeave}
         onDrop={handleMainDrop}
       >
-        {/* 头部 */}
-        <header className="chat-header">
+        {/* 头部 - 简化版 */}
+        <header className={`chat-header ${agent ? 'agent-mode' : ''}`}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {/* 移动端菜单按钮 */}
             <button
@@ -200,7 +226,13 @@ export default function ChatPage() {
             </button>
             {!isMobile && <h1>{currentChat?.title || '新对话'}</h1>}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* PC 端显示 Mode Tabs */}
+            {!isMobile && (
+              <ModeTabs activeMode={mode} onChange={handleModeChange} />
+            )}
+
             {/* 设置按钮 */}
             <button
               onClick={() => setShowSettings(true)}
@@ -219,61 +251,51 @@ export default function ChatPage() {
             </button>
 
             {/* 模型选择 */}
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="model-select"
-            >
-              <option value="qwen3-max">Qwen3 Max</option>
-              <option value="qwen3-max-preview">Qwen3 Max Preview</option>
-              <option value="qwen3.6-plus">Qwen3.6 Plus</option>
-              <option value="qwen-math-turbo">Qwen Math Turbo</option>
-              <option value="glm-5">GLM-5</option>
-            </select>
-
-            {/* RAG 开关 */}
-            <label className="rag-switch">
-              <input
-                type="checkbox"
-                checked={useRAG}
-                onChange={(e) => setUseRAG(e.target.checked)}
-              />
-              <span className="rag-slider"></span>
-              <span className="rag-label">知识库</span>
-            </label>
-
-            {/* 文档选择 */}
-            {useRAG && documents.length > 0 && (
+            {!isMobile && (
               <select
-                value={selectedDocName || ''}
-                onChange={(e) => setSelectedDocName(e.target.value || null)}
-                style={{
-                  padding: '4px 8px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border-color)',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-primary)',
-                  fontSize: '12px',
-                }}
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="model-select"
               >
-                <option value="">全部文档</option>
-                {documents.map((doc) => (
-                  <option key={doc.id} value={doc.name}>
-                    {doc.name}
-                  </option>
-                ))}
+                <option value="qwen3-max">Qwen3 Max</option>
+                <option value="qwen3-max-preview">Qwen3 Max Preview</option>
+                <option value="qwen3.6-plus">Qwen3.6 Plus</option>
+                <option value="qwen-math-turbo">Qwen Math Turbo</option>
+                <option value="glm-5">GLM-5</option>
               </select>
             )}
           </div>
         </header>
+
+        {/* Context Bar - PC 端显示 */}
+        {!isMobile && (
+          <ContextBar
+            mode={mode}
+            useRAG={useRAG}
+            onUseRAGChange={setUseRAG}
+            selectedDocName={selectedDocName}
+            onSelectedDocChange={setSelectedDocName}
+            documents={documents}
+            thinking={thinking}
+            onThinkingChange={setThinking}
+            webSearch={webSearch}
+            onWebSearchChange={setWebSearch}
+            queryExpansion={queryExpansion}
+            onQueryExpansionChange={setQueryExpansion}
+            agent={agent}
+            onAgentChange={handleAgentChange}
+            react={react}
+            onReactChange={setReact}
+          />
+        )}
 
         {/* 上传中提示 */}
         {isUploading && (
           <div
             style={{
               padding: '12px 20px',
-              backgroundColor: 'rgba(16, 163, 127, 0.2)',
-              color: 'var(--accent-color)',
+              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+              color: 'var(--accent-green)',
               fontSize: '14px',
             }}
           >
@@ -292,6 +314,8 @@ export default function ChatPage() {
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
+            backgroundColor: 'var(--bg-secondary)',
+            borderBottom: '1px solid var(--border-subtle)',
           }}>
             💬 {currentChat.title}
           </div>
@@ -302,8 +326,8 @@ export default function ChatPage() {
           <div
             style={{
               padding: '12px 20px',
-              backgroundColor: 'rgba(239, 68, 68, 0.2)',
-              color: '#ef4444',
+              backgroundColor: 'rgba(239, 68, 68, 0.15)',
+              color: 'var(--accent-red)',
               fontSize: '14px',
             }}
           >
@@ -316,7 +340,7 @@ export default function ChatPage() {
           <div
             style={{
               padding: '12px 20px',
-              backgroundColor: 'rgba(34, 197, 94, 0.2)',
+              backgroundColor: 'rgba(34, 197, 94, 0.15)',
               color: '#22c55e',
               fontSize: '14px',
             }}
@@ -326,7 +350,14 @@ export default function ChatPage() {
         )}
 
         {/* 消息列表 */}
-        <MessageList messages={messages} isLoading={isLoading} />
+        {messages.length === 0 && !isLoading ? (
+          <EmptyState
+            hasDocuments={documents.some(d => d.indexed)}
+            onUploadClick={handleUploadClick}
+          />
+        ) : (
+          <MessageList messages={messages} isLoading={isLoading} />
+        )}
 
         {/* 隐藏的文件输入框 */}
         <input
@@ -352,7 +383,7 @@ export default function ChatPage() {
           queryExpansion={queryExpansion}
           onQueryExpansionChange={setQueryExpansion}
           agent={agent}
-          onAgentChange={setAgent}
+          onAgentChange={handleAgentChange}
           react={react}
           onReactChange={setReact}
         />

@@ -5,7 +5,7 @@
  *
  * 功能：
  * - 折叠/展开侧边栏
- * - 新建对话
+ * - Tab 切换（对话/文档）
  * - 对话历史列表
  * - 文档列表与索引
  */
@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import type { Document, Chat } from '@/types/chat';
 import { ChatHistoryList } from './chat-history-list';
 import { DocumentList } from './document-list';
+import { SidebarTabNav } from './tab-nav';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -46,6 +47,7 @@ export function Sidebar({
   indexingProgress,
 }: SidebarProps) {
   const [isMobile, setIsMobile] = useState(false);
+  const [activeTab, setActiveTab] = useState<'conversations' | 'documents'>('conversations');
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth <= 768);
@@ -80,27 +82,31 @@ export function Sidebar({
             + 新对话
           </Button>
 
-          {/* 对话历史 */}
-          <ChatHistoryList
-            chats={chats}
-            currentChatId={currentChatId}
-            onSwitchChat={onSwitchChat}
-            onDeleteChat={onDeleteChat}
-          />
+          {/* Tab 导航 */}
+          <SidebarTabNav activeTab={activeTab} onChange={setActiveTab} />
 
-          {/* 文档列表 */}
-          <DocumentList
-            documents={documents}
-            indexingId={indexingId}
-            indexingProgress={indexingProgress}
-            onIndexDocument={onIndexDocument}
-            onDeleteDocument={onDeleteDocument}
-          />
+          {/* Tab 内容 */}
+          {activeTab === 'conversations' ? (
+            <ChatHistoryList
+              chats={chats}
+              currentChatId={currentChatId}
+              onSwitchChat={onSwitchChat}
+              onDeleteChat={onDeleteChat}
+            />
+          ) : (
+            <DocumentList
+              documents={documents}
+              indexingId={indexingId}
+              indexingProgress={indexingProgress}
+              onIndexDocument={onIndexDocument}
+              onDeleteDocument={onDeleteDocument}
+            />
+          )}
 
           {/* 空状态 */}
           {documents.length === 0 && chats.length === 0 && (
             <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '20px 0', fontSize: '13px' }}>
-              暂无文档
+              暂无内容
               <br />
               <span style={{ fontSize: '12px' }}>上传文件开始构建知识库</span>
             </div>
