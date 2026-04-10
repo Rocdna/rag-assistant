@@ -83,6 +83,14 @@ export default function ChatPage() {
     },
   });
 
+  // 如果没有已索引的文档，关闭 RAG
+  useEffect(() => {
+    const hasIndexedDocs = documents.some((d) => d.indexed);
+    if (!hasIndexedDocs) {
+      setUseRAG(false);
+    }
+  }, [documents]);
+
   // 移动端保持侧边栏关闭
   useEffect(() => {
     if (isMobile) {
@@ -331,24 +339,6 @@ export default function ChatPage() {
             }}
           >
             正在解析文档...
-          </div>
-        )}
-
-        {/* 移动端对话标题 */}
-        {isMobile && currentChat?.title && (
-          <div style={{
-            padding: '10px 16px',
-            fontSize: '14px',
-            fontWeight: 500,
-            color: 'var(--text-secondary)',
-            textAlign: 'center',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            backgroundColor: 'var(--bg-secondary)',
-            borderBottom: '1px solid var(--border-subtle)',
-          }}>
-            💬 {currentChat.title}
           </div>
         )}
 

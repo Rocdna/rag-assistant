@@ -1729,8 +1729,11 @@ body {
     height: 42px !important;
     max-height: 120px;
     padding: 0 14px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
     display: flex;
     align-items: center;
+    line-height: 42px;
   }
 
   .chat-input-form {
@@ -1741,6 +1744,26 @@ body {
     height: 42px;
     padding: 0 14px;
     font-size: 14px;
+  }
+
+  /* 移动端功能按钮 - 只显示上传和设置入口，其他收到设置里 */
+  .mobile-action-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 0 2px;
+  }
+
+  .mobile-action-row > button {
+    flex: 1;
+    justify-content: center;
+    padding: 8px 8px;
+    font-size: 12px;
+    min-width: 0;
+  }
+
+  .mobile-action-row > button:first-child {
+    flex: 1;
   }
 
   /* 上传区域 */
@@ -1781,27 +1804,6 @@ body {
   .model-select {
     font-size: 11px;
     padding: 4px 24px 4px 8px;
-  }
-
-  /* 移动端功能开关 - 紧凑模式 */
-  .mobile-action-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 8px;
-    padding: 0 2px;
-  }
-
-  .mobile-action-row > button {
-    flex: 1 1 calc(33.33% - 6px);
-    min-width: calc(33.33% - 6px);
-    justify-content: center;
-    padding: 6px 8px;
-    font-size: 11px;
-  }
-
-  .mobile-action-row > button:first-child {
-    flex: 1 1 100%;
   }
 
   /* Context Bar - 移动端隐藏，用设置按钮代替 */
