@@ -11,6 +11,7 @@ import { SettingsModal } from '@/components/chat/settings-modal';
 import { ModeTabs, type ChatMode } from '@/components/chat/header/mode-tabs';
 import { ContextBar } from '@/components/chat/header/context-bar';
 import { EmptyState } from '@/components/chat/message/empty-state';
+import { MobileSettingsSheet } from '@/components/chat/mobile-settings-sheet';
 
 export default function ChatPage() {
   const {
@@ -52,6 +53,7 @@ export default function ChatPage() {
   // UI 状态
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showMobileSettings, setShowMobileSettings] = useState(false);
   const [isDragover, setIsDragover] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
 
@@ -235,7 +237,7 @@ export default function ChatPage() {
 
             {/* 设置按钮 */}
             <button
-              onClick={() => setShowSettings(true)}
+              onClick={() => isMobile ? setShowMobileSettings(true) : setShowSettings(true)}
               style={{
                 background: 'none',
                 border: 'none',
@@ -247,7 +249,7 @@ export default function ChatPage() {
               }}
               title="设置"
             >
-              ⚙️
+              {isMobile ? '⚡' : '⚙️'}
             </button>
 
             {/* 模型选择 */}
@@ -397,6 +399,25 @@ export default function ChatPage() {
             window.location.reload();
           }}
           onClearDocuments={clearAllDocuments}
+        />
+
+        {/* 移动端设置面板 */}
+        <MobileSettingsSheet
+          isOpen={showMobileSettings}
+          onClose={() => setShowMobileSettings(false)}
+          mode={mode}
+          thinking={thinking}
+          onThinkingChange={setThinking}
+          webSearch={webSearch}
+          onWebSearchChange={setWebSearch}
+          queryExpansion={queryExpansion}
+          onQueryExpansionChange={setQueryExpansion}
+          agent={agent}
+          onAgentChange={handleAgentChange}
+          react={react}
+          onReactChange={setReact}
+          useRAG={useRAG}
+          onUseRAGChange={setUseRAG}
         />
       </div>
     </div>

@@ -163,6 +163,7 @@ types/     # TypeScript 类型定义
 ## Git 提交规范
 
 ```
+commit: 提交信息使用中文
 feat: 新功能
 fix: 修复 bug
 docs: 文档更新
