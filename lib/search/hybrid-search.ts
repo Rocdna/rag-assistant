@@ -7,7 +7,7 @@
  * - 提供统一的检索接口
  */
 
-import { retrieveRelevantChunks } from '@/lib/chromadb';
+import { retrieveRelevantChunks, getAllUserChunkContents } from '@/lib/pinecone';
 import type { BM25Doc } from './bm25';
 import { bm25Search } from './bm25';
 import type { RetrievedDoc } from './rrf';
@@ -37,6 +37,7 @@ export interface HybridSearchOptions {
   useHyDE?: boolean;
   useHybrid?: boolean;
   model?: string;
+  userId?: string;  // 用户ID，用于多用户隔离
 }
 
 /**
@@ -60,6 +61,7 @@ export async function hybridSearchWithHyDE(
     useHyDE = false,
     useHybrid = false,
     model = 'qwen3-max',
+    userId,
   } = options;
 
   const stats: SearchStats = {
@@ -86,7 +88,7 @@ export async function hybridSearchWithHyDE(
   // Step 2: 向量检索（初步检索，用于 HyDE 修正）
   const vectorStart = Date.now();
   // 多取一些结果，用于 HyDE 修正验证
-  const initialResults = await retrieveRelevantChunks(searchQuery, topK * 3, documentName);
+  const initialResults = await retrieveRelevantChunks(searchQuery, topK * 3, documentName, userId);
   stats.vectorTime = Date.now() - vectorStart;
 
   let results: SearchResult[] = initialResults.map(r => ({ ...r, source: 'vector' as const }));
@@ -118,7 +120,7 @@ export async function hybridSearchWithHyDE(
       if (wasCorrected) {
         hydeCorrectedQuery = corrected;
         const reRetreiveStart = Date.now();
-        results = (await retrieveRelevantChunks(corrected, topK, documentName))
+        results = (await retrieveRelevantChunks(corrected, topK, documentName, userId))
           .map(r => ({ ...r, source: 'vector' as const }));
         stats.vectorTime += Date.now() - reRetreiveStart;
       }
@@ -151,4 +153,32 @@ export async function hybridSearchWithHyDE(
     results,
     stats,
   };
+}
+
+/**
+ * 从 Pinecone 获取用户所有 chunk 原文（用于 BM25）
+ */
+export async function getChunksForHybridSearch(
+  userId?: string,
+  documentName?: string,
+  topK: number = 10000
+): Promise<BM25Doc[]> {
+  if (!userId) return [];
+
+  // 从 Pinecone 拉取该用户的所有 chunk
+  const allChunks = await getAllUserChunkContents(userId, topK);
+
+  // 如果指定了文档名，过滤
+  let filtered = allChunks;
+  if (documentName) {
+    filtered = allChunks.filter(
+      c => (c.metadata.documentName as string) === documentName
+    );
+  }
+
+  return filtered.map(c => ({
+    id: c.id,
+    content: c.content,
+    metadata: c.metadata,
+  }));
 }

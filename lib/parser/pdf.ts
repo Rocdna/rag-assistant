@@ -1,11 +1,11 @@
 /**
  * PDF 文件解析器
  *
- * 使用 pdf-parse v2 解析 PDF 文件（Node.js 专用）
- * 注意：pdf-parse 会一次性加载整个文件到内存，适合中小型 PDF
+ * 使用 pdfjs-dist v5 legacy 构建（Node.js 友好版）
+ * 注意：legacy 构建避免了 DOMMatrix 等浏览器 API 在 Node.js 中的问题
  */
 
-import { PDFParse } from 'pdf-parse';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 /**
  * 解析 PDF 文件
@@ -15,11 +15,18 @@ import { PDFParse } from 'pdf-parse';
  */
 export async function parsePdf(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) });
+  const pdf = await loadingTask.promise;
 
-  // pdf-parse v2 API
-  const parser = new PDFParse({ data: buffer });
-  const result = await parser.getText();
+  const textParts: string[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items
+      .map((item: any) => item.str)
+      .join(' ');
+    textParts.push(pageText);
+  }
 
-  return result.text.trim();
+  return textParts.join('\n').trim();
 }

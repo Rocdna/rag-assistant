@@ -2,13 +2,12 @@
  * 文档工具封装
  *
  * 功能：
- * - search_documents - 搜索本地文档
- * - list_documents - 列出所有本地文档
- * - get_documents_stats - 获取本地文档统计
+ * - search_documents - 搜索 Pinecone 向量数据库
+ * - list_documents - 列出用户所有文档
+ * - get_documents_stats - 获取用户文档统计
  */
 
-import { retrieveRelevantChunks } from '@/lib/chromadb';
-import { getAllChunksFromStore, getChunksStoreStats } from '@/lib/chunks-store';
+import { retrieveRelevantChunks, getUserStats } from '@/lib/pinecone';
 import type { ToolResult } from '@/types/chat';
 
 /**
@@ -16,11 +15,13 @@ import type { ToolResult } from '@/types/chat';
  *
  * @param toolName 工具名称
  * @param args 工具参数
+ * @param userId 用户ID（可选，用于多用户隔离）
  * @returns 工具执行结果
  */
 export async function executeDocumentTool(
   toolName: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  userId?: string
 ): Promise<ToolResult> {
   try {
     switch (toolName) {
@@ -33,7 +34,7 @@ export async function executeDocumentTool(
         }
 
         const topK = 5;
-        const results = await retrieveRelevantChunks(query, topK, documentName);
+        const results = await retrieveRelevantChunks(query, topK, documentName, userId);
 
         if (results.length === 0) {
           return { success: true, result: '未找到相关内容' };
@@ -47,14 +48,33 @@ export async function executeDocumentTool(
       }
 
       case 'list_documents': {
-        const stats = await getChunksStoreStats();
-        const allChunks = await getAllChunksFromStore();
+        if (!userId) {
+          return { success: true, result: '（暂无文档）' };
+        }
 
-        // 按文档名分组
+        // 从 Pinecone 查询用户所有文档（分批拉取，聚合 documentName）
+        const index = (await import('@/lib/pinecone')).getIndex();
         const docMap = new Map<string, number>();
-        for (const chunk of allChunks) {
-          const name = chunk.metadata.documentName;
-          docMap.set(name, (docMap.get(name) || 0) + 1);
+        let cursor: string | undefined;
+
+        while (true) {
+          const result = await index.query({
+            vector: new Array(1536).fill(0),
+            topK: 1000,
+            filter: { userId: { $eq: userId } },
+            includeMetadata: true,
+            cursor,
+          });
+
+          for (const match of result.matches || []) {
+            const docName = match.metadata?.documentName as string | undefined;
+            if (docName) {
+              docMap.set(docName, (docMap.get(docName) || 0) + 1);
+            }
+          }
+
+          if (!result.pagination?.cursor) break;
+          cursor = result.pagination.cursor;
         }
 
         const docList = Array.from(docMap.entries())
@@ -63,15 +83,21 @@ export async function executeDocumentTool(
 
         return {
           success: true,
-          result: `共有 ${stats.totalDocuments} 个文档，总计 ${stats.totalChunks} 个片段：\n${docList || '（暂无文档）'}`,
+          result: `共有 ${docMap.size} 个文档，总计 ${Array.from(docMap.values()).reduce((a, b) => a + b, 0)} 个片段：\n${docList || '（暂无文档）'}`,
         };
       }
 
       case 'get_documents_stats': {
-        const stats = await getChunksStoreStats();
+        if (!userId) {
+          return {
+            success: true,
+            result: '文档数量：0\n片段数量：0',
+          };
+        }
+        const stats = await getUserStats(userId);
         return {
           success: true,
-          result: `文档数量：${stats.totalDocuments}\n片段数量：${stats.totalChunks}\n最后更新：${stats.updatedAt ? new Date(stats.updatedAt).toLocaleString() : '无'}`,
+          result: `文档数量：${stats.totalDocuments}\n片段数量：${stats.totalChunks}`,
         };
       }
 

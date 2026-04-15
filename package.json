@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@pinecone-database/pinecone": "^7.1.0",
+    "@supabase/auth-helpers-nextjs": "^0.15.0",
+    "@supabase/ssr": "^0.10.2",
+    "@supabase/supabase-js": "^2.103.0",
     "@tavily/core": "^0.7.2",
     "docx": "^9.6.1",
     "mammoth": "^1.6.0",

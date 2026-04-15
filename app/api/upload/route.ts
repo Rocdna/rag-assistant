@@ -11,8 +11,16 @@ export const maxDuration = 120; // 120秒超时
 
 export async function POST(req: Request) {
   try {
+    console.log(`[${new Date().toISOString()}] 开始处理上传请求`);
+    const startTime = Date.now();
+
     const formData = await req.formData();
+
+    console.log(`解析 formData 耗时: ${Date.now() - startTime}ms`);
+
     const file = formData.get('file') as File;
+
+    console.log(`文件大小: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
 
     if (!file) {
       return Response.json({ error: '没有上传文件' }, { status: 400 });
@@ -29,7 +37,11 @@ export async function POST(req: Request) {
 
     let content;
     try {
+      const parseStart = Date.now();
+
       content = await parseDocument(file);
+
+      console.log(`parseDocument 耗时: ${(Date.now() - parseStart) / 1000}秒`);
     } catch (parseError: any) {
       console.error('Parse error:', parseError);
       return Response.json({ error: '解析文档失败: ' + parseError.message }, { status: 500 });

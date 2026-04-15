@@ -50,7 +50,7 @@ export function EmptyState({ hasDocuments, onSuggestionClick, onUploadClick }: E
             <span className="empty-state-suggestion-text">点击上传或拖拽文件至此处</span>
           </button>
           <span className="empty-state-upload-formats">
-            支持 PDF、TXT、DOCX、MD
+            支持 PDF、TXT、DOCX、MD，单文件不超过 25MB
           </span>
         </div>
       )}

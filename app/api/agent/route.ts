@@ -8,7 +8,7 @@
 
 import OpenAI from 'openai';
 import { TOOL_DEFINITIONS, TOOL_EXECUTORS } from '@/lib/tools/definitions';
-import { getChunksStoreStats } from '@/lib/chunks-store';
+import { getUserStats } from '@/lib/pinecone';
 import type { ToolResult } from '@/types/chat';
 
 const openai = new OpenAI({
@@ -83,7 +83,7 @@ const REACT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 // 工具执行
 // ============================================================
 
-async function executeTool(toolCall: { name: string; arguments: string }): Promise<ToolResult> {
+async function executeTool(toolCall: { name: string; arguments: string }, userId?: string): Promise<ToolResult> {
   const executor = TOOL_EXECUTORS[toolCall.name as keyof typeof TOOL_EXECUTORS];
   if (!executor) {
     return { success: false, result: '', error: `未知工具: ${toolCall.name}` };
@@ -91,6 +91,10 @@ async function executeTool(toolCall: { name: string; arguments: string }): Promi
 
   try {
     const args = JSON.parse(toolCall.arguments);
+    // 传递 userId 给文档工具
+    if (toolCall.name === 'search_documents' || toolCall.name === 'list_documents' || toolCall.name === 'get_documents_stats') {
+      return await executor(toolCall.name, args, userId);
+    }
     return await executor(toolCall.name, args);
   } catch (e) {
     return {
@@ -303,6 +307,7 @@ async function streamLLMResponse(
 
 export async function POST(req: Request) {
   try {
+    const userId = req.headers.get('x-user-id') || undefined;
     const { query, messages, model, react = false, summary, memoryContext } = await req.json();
 
     console.log('\n========== [🤖 Agent API 入口] ==========');
@@ -311,6 +316,7 @@ export async function POST(req: Request) {
     console.log(`[入口] react 模式: ${react}`);
     console.log(`[入口] summary: ${summary ? '有 (' + summary.slice(0, 50) + '...)' : '无'}`);
     console.log(`[入口] memoryContext: ${memoryContext ? '有 (' + memoryContext.slice(0, 50) + '...)' : '无'}`);
+    console.log(`[入口] userId: ${userId || 'anonymous'}`);
 
     if (!query) {
       return Response.json({ error: '问题不能为空' }, { status: 400 });
@@ -319,7 +325,7 @@ export async function POST(req: Request) {
     const selectedModel = model || process.env.DEFAULT_MODEL || 'qwen3-max';
 
     // 检查知识库状态
-    const stats = await getChunksStoreStats();
+    const stats = await getUserStats(userId);
     const hasDocuments = stats.totalDocuments > 0;
 
     // 构建用户记忆上下文
@@ -355,13 +361,13 @@ export async function POST(req: Request) {
     // ReAct 模式：展示思考过程
     // ============================================================
     if (react) {
-      return handleReactMode(conversationMessages, selectedModel, req.signal);
+      return handleReactMode(conversationMessages, selectedModel, req.signal, userId);
     }
 
     // ============================================================
     // 普通模式：直接返回结果
     // ============================================================
-    return handleNormalMode(conversationMessages, selectedModel, req.signal);
+    return handleNormalMode(conversationMessages, selectedModel, req.signal, userId);
   } catch (error: any) {
     console.error('Agent API 错误:', error);
 
@@ -385,7 +391,8 @@ export async function POST(req: Request) {
 async function handleNormalMode(
   conversationMessages: OpenAI.Chat.ChatCompletionMessageParam[],
   model: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  userId?: string
 ): Promise<Response> {
   let toolCallCount = 0;
 
@@ -428,7 +435,7 @@ async function handleNormalMode(
         const result = await executeTool({
           name: tc.function?.name || '',
           arguments: tc.function?.arguments || '{}',
-        });
+        }, userId);
 
         return {
           role: 'tool' as const,
@@ -457,7 +464,8 @@ async function handleNormalMode(
 async function handleReactMode(
   conversationMessages: OpenAI.Chat.ChatCompletionMessageParam[],
   model: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  userId?: string
 ): Promise<Response> {
   const encoder = new TextEncoder();
   let controller: ReadableStreamDefaultController;
@@ -488,7 +496,7 @@ async function handleReactMode(
   });
 
   // 启动 ReAct 循环
-  runReactLoop(conversationMessages, model, signal, pushStep, done).catch((error) => {
+  runReactLoop(conversationMessages, model, signal, pushStep, done, userId).catch((error) => {
     if (error instanceof Error && error.name !== 'AbortError') {
       console.error('ReAct 模式错误:', error);
     }
@@ -505,7 +513,8 @@ async function runReactLoop(
   model: string,
   signal: AbortSignal | undefined,
   pushStep: (type: string, content: string) => void,
-  done: () => void
+  done: () => void,
+  userId?: string
 ) {
   let toolCallCount = 0;
 
@@ -643,7 +652,7 @@ async function runReactLoop(
       await new Promise(resolve => setTimeout(resolve, 50));
 
       // 解析参数并执行
-      const result = await executeTool({ name: toolName, arguments: toolArgs });
+      const result = await executeTool({ name: toolName, arguments: toolArgs }, userId);
       const observationContent = result.success
         ? result.result
         : `工具执行失败: ${result.error}`;

@@ -11,12 +11,10 @@
 
 import { useEffect, useState } from 'react';
 import { FeatureToggle } from '@/components/ui/toggle';
-import type { ChatMode } from './header/mode-tabs';
 
 interface MobileSettingsSheetProps {
   isOpen: boolean;
   onClose: () => void;
-  mode: ChatMode;
   thinking: boolean;
   onThinkingChange: (enabled: boolean) => void;
   webSearch: boolean;
@@ -27,14 +25,11 @@ interface MobileSettingsSheetProps {
   onAgentChange: (enabled: boolean) => void;
   react: boolean;
   onReactChange: (enabled: boolean) => void;
-  useRAG: boolean;
-  onUseRAGChange: (enabled: boolean) => void;
 }
 
 export function MobileSettingsSheet({
   isOpen,
   onClose,
-  mode,
   thinking,
   onThinkingChange,
   webSearch,
@@ -45,8 +40,6 @@ export function MobileSettingsSheet({
   onAgentChange,
   react,
   onReactChange,
-  useRAG,
-  onUseRAGChange,
 }: MobileSettingsSheetProps) {
   const [isVisible, setIsVisible] = useState(false);
 
@@ -114,7 +107,7 @@ export function MobileSettingsSheet({
             textAlign: 'center',
           }}
         >
-          {mode === 'chat' ? '对话设置' : 'Agent 设置'}
+          功能设置
         </div>
 
         {/* Settings Grid */}
@@ -125,64 +118,37 @@ export function MobileSettingsSheet({
             gap: '12px',
           }}
         >
-          {mode === 'chat' ? (
-            <>
-              <FeatureToggle
-                icon="📚"
-                label="知识库"
-                enabled={useRAG}
-                onChange={onUseRAGChange}
-              />
-              <FeatureToggle
-                icon="🧠"
-                label="思考"
-                enabled={thinking}
-                onChange={onThinkingChange}
-              />
-              <FeatureToggle
-                icon="🔍"
-                label="联网"
-                enabled={webSearch}
-                onChange={onWebSearchChange}
-              />
-              <FeatureToggle
-                icon="✨"
-                label="HyDE"
-                enabled={queryExpansion}
-                onChange={onQueryExpansionChange}
-              />
-              <FeatureToggle
-                icon="🤖"
-                label="Agent"
-                enabled={agent}
-                onChange={onAgentChange}
-              />
-              {agent && (
-                <FeatureToggle
-                  icon="🔄"
-                  label="ReAct"
-                  enabled={react}
-                  onChange={onReactChange}
-                />
-              )}
-            </>
-          ) : (
-            <>
-              <FeatureToggle
-                icon="🤖"
-                label="Agent"
-                enabled={agent}
-                onChange={onAgentChange}
-              />
-              <FeatureToggle
-                icon="🔄"
-                label="ReAct"
-                enabled={react}
-                onChange={onReactChange}
-                disabled={!agent}
-              />
-            </>
-          )}
+          <FeatureToggle
+            icon="🧠"
+            label="深度思考"
+            enabled={thinking}
+            onChange={onThinkingChange}
+          />
+          <FeatureToggle
+            icon="🔍"
+            label="联网搜索"
+            enabled={webSearch}
+            onChange={onWebSearchChange}
+          />
+          <FeatureToggle
+            icon="✨"
+            label="HyDE 检索"
+            enabled={queryExpansion}
+            onChange={onQueryExpansionChange}
+          />
+          <FeatureToggle
+            icon="🤖"
+            label="Agent 模式"
+            enabled={agent}
+            onChange={onAgentChange}
+          />
+          <FeatureToggle
+            icon="🔄"
+            label="ReAct 展示"
+            enabled={react}
+            onChange={onReactChange}
+            disabled={!agent}
+          />
         </div>
 
         {/* Close Button */}

@@ -14,6 +14,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Document } from '@/types/chat';
 
 const SUPPORTED_TYPES = ['.pdf', '.txt', '.docx', '.doc', '.md'];
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
 const DOCS_STORAGE_KEY = 'rag_documents';
 
 interface IndexingProgress {
@@ -78,12 +79,15 @@ export function useDocumentIndex(options: UseDocumentIndexOptions = {}) {
   }, [documents, saveDocumentsToStorage]);
 
   /**
-   * 验证文件类型
+   * 验证文件类型和大小
    */
   const validateFile = useCallback((file: File): string | null => {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
     if (!SUPPORTED_TYPES.includes(ext)) {
       return `不支持的文件类型: ${file.name}，仅支持 PDF、TXT、DOCX、MD`;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      return `文件超过 25MB 限制: ${file.name}`;
     }
     return null;
   }, []);
@@ -218,35 +222,43 @@ export function useDocumentIndex(options: UseDocumentIndexOptions = {}) {
     const doc = await uploadFile(file);
     if (!doc) return;
 
+    // 检查是否已存在同名文档
+    const existingDoc = documents.find((d) => d.name === doc.name);
+
     // 处理上传完成
     setDocuments((prev) => {
-      // 如果已存在同名文档，先删除云端旧数据
-      const existingIndex = prev.findIndex((d) => d.name === doc.name);
-      if (existingIndex >= 0) {
-        const existingDoc = prev[existingIndex];
-        // 异步删除云端旧数据
-        fetch('/api/delete', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ documentId: existingDoc.id }),
-        }).catch(err => console.error('删除旧文档失败:', err));
-
-        // 替换为新文档（new ID）
-        return [...prev.slice(0, existingIndex), { ...doc, indexed: false }, ...prev.slice(existingIndex + 1)];
+      if (existingDoc) {
+        // 替换为新文档（new ID），保持未索引状态等待重新索引
+        return prev.map((d) => d.id === existingDoc.id ? { ...doc, indexed: false, chunkCount: 0 } : d);
       }
       return [{ ...doc, indexed: false }, ...prev];
     });
 
     onUploadComplete?.(doc);
 
+    // 如果是同名文档替换，先删除云端旧数据再重新索引
+    if (existingDoc) {
+      await fetch('/api/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ documentId: existingDoc.id }),
+      });
+    }
+
     // 自动索引
     await indexDocument(doc);
-  }, [uploadFile, indexDocument, onUploadComplete]);
+  }, [uploadFile, indexDocument, onUploadComplete, documents]);
 
   /**
    * 删除文档（云端 + 前端）
+   * - 先从列表移除，用户立即看到效果
+   * - 再调 API 删除 Pinecone 向量（幂等，404 当成功）
+   * - 不依赖前端 indexed 状态，因为刷新后会丢失
    */
   const deleteDocument = useCallback(async (docId: string): Promise<void> => {
+    // 先从列表移除，用户立即看到效果
+    setDocuments((prev) => prev.filter((d) => d.id !== docId));
+
     try {
       await fetch('/api/delete', {
         method: 'DELETE',
@@ -256,29 +268,29 @@ export function useDocumentIndex(options: UseDocumentIndexOptions = {}) {
     } catch (error) {
       console.error('删除文档向量失败:', error);
     }
-    setDocuments((prev) => prev.filter((d) => d.id !== docId));
   }, []);
 
   /**
-   * 清空所有文档
+   * 清空所有文档（云端 + 本地）
    */
-  const clearAllDocuments = useCallback(async (): Promise<void> => {
-    await Promise.all(
-      documents.map(async (doc) => {
-        try {
-          await fetch('/api/delete', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ documentId: doc.id }),
-          });
-        } catch (error) {
-          console.error('删除文档向量失败:', error);
-        }
-      })
-    );
-    setDocuments([]);
-    localStorage.removeItem(DOCS_STORAGE_KEY);
-  }, [documents]);
+  const clearAllDocuments = useCallback(async (): Promise<{ success: boolean; message?: string }> => {
+    // 调用统一清空 API，同时删除云端所有向量和本地 chunks
+    try {
+      const res = await fetch('/api/delete-all', {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || '清空失败');
+      }
+      setDocuments([]);
+      localStorage.removeItem(DOCS_STORAGE_KEY);
+      return { success: true, message: data.message };
+    } catch (error) {
+      console.error('清空文档向量失败:', error);
+      return { success: false, message: error instanceof Error ? error.message : '清空失败' };
+    }
+  }, []);
 
   /**
    * 点击上传按钮 - 触发文件选择
@@ -288,7 +300,7 @@ export function useDocumentIndex(options: UseDocumentIndexOptions = {}) {
   }, []);
 
   /**
-   * 文件选择后的处理 - 仅上传，不自动索引
+   * 文件选择后的处理 - 仅上传，不自动索引（由外部决定是否索引）
    */
   const handleFileSelect = useCallback((
     e: React.ChangeEvent<HTMLInputElement>
@@ -299,18 +311,14 @@ export function useDocumentIndex(options: UseDocumentIndexOptions = {}) {
         if (!doc) return;
         // 添加到文档列表（标记为未索引）
         setDocuments((prev) => {
-          // 如果已存在同名文档，先删除云端旧数据
+          // 如果已存在同名文档，替换
           const existingIndex = prev.findIndex((d) => d.name === doc.name);
           if (existingIndex >= 0) {
             const existingDoc = prev[existingIndex];
-            // 异步删除云端旧数据
-            fetch('/api/delete', {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ documentId: existingDoc.id }),
-            }).catch(err => console.error('删除旧文档失败:', err));
+            // 通过 deleteDocument 删除（幂等，always 调 API）
+            deleteDocument(existingDoc.id);
 
-            return [...prev.slice(0, existingIndex), { ...doc, indexed: false }, ...prev.slice(existingIndex + 1)];
+            return [...prev.slice(0, existingIndex), { ...doc, indexed: false, chunkCount: 0 }, ...prev.slice(existingIndex + 1)];
           }
           return [{ ...doc, indexed: false }, ...prev];
         });
@@ -329,18 +337,14 @@ export function useDocumentIndex(options: UseDocumentIndexOptions = {}) {
     if (!doc) return;
     // 添加到文档列表（标记为未索引）
     setDocuments((prev) => {
-      // 如果已存在同名文档，先删除云端旧数据
+      // 如果已存在同名文档，替换
       const existingIndex = prev.findIndex((d) => d.name === doc.name);
       if (existingIndex >= 0) {
         const existingDoc = prev[existingIndex];
-        // 异步删除云端旧数据
-        fetch('/api/delete', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ documentId: existingDoc.id }),
-        }).catch(err => console.error('删除旧文档失败:', err));
+        // 通过 deleteDocument 删除（幂等，always 调 API）
+        deleteDocument(existingDoc.id);
 
-        return [...prev.slice(0, existingIndex), { ...doc, indexed: false }, ...prev.slice(existingIndex + 1)];
+        return [...prev.slice(0, existingIndex), { ...doc, indexed: false, chunkCount: 0 }, ...prev.slice(existingIndex + 1)];
       }
       return [{ ...doc, indexed: false }, ...prev];
     });

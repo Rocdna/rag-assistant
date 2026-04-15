@@ -2,14 +2,12 @@
  * 文档索引 API
  *
  * 功能：
- * 1. 将文档分块、向量化，存入向量数据库
+ * 1. 将文档分块、向量化，存入 Pinecone 向量数据库
  * 2. 分批处理 + 进度反馈（SSE）
- * 3. 同时保存到本地 chunks-store（用于 BM25）
  */
 
-import { addDocumentChunks, deleteDocumentChunks } from '@/lib/chromadb';
+import { addDocumentChunks } from '@/lib/pinecone';
 import { chunkText } from '@/lib/chunker';
-import { addChunksToStore, getChunksByDocumentId, deleteChunksFromStore } from '@/lib/chunks-store';
 
 export const maxDuration = 300; // 5分钟超时
 
@@ -25,7 +23,6 @@ interface IndexParams {
 const SSE_STAGES = {
   CHUNKING: 'chunking',
   INDEXING: 'indexing',
-  STORING: 'storing',
   COMPLETE: 'complete',
   ERROR: 'error',
 } as const;
@@ -35,6 +32,7 @@ const SSE_STAGES = {
  */
 export async function POST(req: Request) {
   try {
+    const userId = req.headers.get('x-user-id');
     const params: IndexParams = await req.json();
 
     if (!params.documentId || !params.content) {
@@ -45,10 +43,10 @@ export async function POST(req: Request) {
     const wantsStream = acceptHeader?.includes('text/event-stream');
 
     if (wantsStream) {
-      return handleStreamingIndex(params);
+      return handleStreamingIndex(params, userId || undefined);
     }
 
-    return handleNormalIndex(params);
+    return handleNormalIndex(params, userId || undefined);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     return Response.json({ error: message }, { status: 500 });
@@ -56,56 +54,33 @@ export async function POST(req: Request) {
 }
 
 /**
- * 增量索引准备：检查并删除旧版本
- * @returns 是否为更新操作
- */
-async function prepareForIncrementalIndex(documentId: string): Promise<boolean> {
-  const existingChunks = await getChunksByDocumentId(documentId);
-  const isUpdate = existingChunks.length > 0;
-
-  if (isUpdate) {
-    console.log(`[增量索引] 检测到已有 ${existingChunks.length} 个 chunks，需要更新`);
-    // 并行删除旧版本（两个删除操作独立）
-    await Promise.all([
-      deleteDocumentChunks(documentId),
-      deleteChunksFromStore(documentId),
-    ]);
-  }
-
-  return isUpdate;
-}
-
-/**
  * 普通索引模式
  */
-async function handleNormalIndex(params: IndexParams): Promise<Response> {
+async function handleNormalIndex(params: IndexParams, userId?: string): Promise<Response> {
   const { documentId, documentName, content, chunkSize, chunkOverlap } = params;
   const docName = documentName || '未知文档';
   const now = Date.now();
-
-  const isUpdate = await prepareForIncrementalIndex(documentId);
 
   const chunks = chunkText(content, {
     chunkSize: chunkSize || 500,
     chunkOverlap: chunkOverlap || 50,
   });
 
-  const chunkCount = await addDocumentChunks(chunks, documentId, docName, 0, undefined, now);
-  await addChunksToStore(chunks, documentId, docName, now);
+  // Pinecone upsert 按 vector ID 覆盖，自动处理增量更新
+  const chunkCount = await addDocumentChunks(chunks, documentId, docName, 0, undefined, now, userId);
 
   return Response.json({
     success: true,
     documentId,
     chunkCount,
     totalChunks: chunks.length,
-    isUpdate,
   });
 }
 
 /**
  * 流式索引模式 - 支持进度反馈
  */
-async function handleStreamingIndex(params: IndexParams): Promise<Response> {
+async function handleStreamingIndex(params: IndexParams, userId?: string): Promise<Response> {
   const { documentId, documentName, content, chunkSize, chunkOverlap } = params;
   const docName = documentName || '未知文档';
   const now = Date.now();
@@ -126,9 +101,6 @@ async function handleStreamingIndex(params: IndexParams): Promise<Response> {
       };
 
       try {
-        // 检查文档是否已存在（增量更新判断）
-        const isUpdate = await prepareForIncrementalIndex(documentId);
-
         // 阶段1: 文本分块
         sendProgress(SSE_STAGES.CHUNKING, 0, '开始分块...');
 
@@ -152,23 +124,18 @@ async function handleStreamingIndex(params: IndexParams): Promise<Response> {
             const progressPercent = Math.round((processed / total) * 100);
             sendProgress(SSE_STAGES.INDEXING, progressPercent, `已索引 ${processed}/${total} 个块`);
           },
-          now
+          now,
+          userId
         );
-
-        // 阶段3: 保存到本地 chunks-store
-        sendProgress(SSE_STAGES.STORING, 0, '保存到本地存储...');
-        await addChunksToStore(chunks, documentId, docName, now);
-        sendProgress(SSE_STAGES.STORING, 100, '保存完成');
 
         // 完成
         const finalData = JSON.stringify({
           stage: SSE_STAGES.COMPLETE,
           progress: 100,
-          message: isUpdate ? '索引更新完成' : '索引完成',
+          message: '索引完成',
           documentId,
           chunkCount: chunks.length,
           totalChunks: chunks.length,
-          isUpdate,
         });
         controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
 

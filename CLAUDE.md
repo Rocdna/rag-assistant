@@ -62,7 +62,7 @@ score: 1 - distances[i],
 | 已过期/失效的代码 | ❌ 删除，不要留注释 |
 
 - **组件文件**: `kebab-case` (如 `chat-input.tsx`, `message-list.tsx`)
-- **工具函数文件**: `kebab-case` (如 `use-chat.ts`, `chromadb.ts`)
+- **工具函数文件**: `kebab-case` (如 `use-chat.ts`, `pinecone.ts`)
 - **类型定义文件**: `kebab-case` (如 `chat.ts`)
 
 ## TypeScript 规范
@@ -152,7 +152,7 @@ components/
 
 lib/
 ├── utils.ts           # 通用工具
-├── chromadb.ts        # 向量数据库
+├── pinecone.ts       # Pinecone 向量数据库
 ├── chunker.ts         # 文本分块
 └── parser/            # 文档解析
 

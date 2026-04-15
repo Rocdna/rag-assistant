@@ -16,14 +16,13 @@ const pinecone = new Pinecone({
 
 const INDEX_NAME = process.env.PINECONE_INDEX || 'rag-assistant';
 const EMBEDDING_MODEL = 'text-embedding-v2';
-const EMBEDDING_DIMENSION = 1536;
 const BATCH_SIZE = 50;
 const BATCH_DELAY_MS = 100; // Pinecone 免费版限制：每秒约 10 次 upsert
 
 // Pinecone index 引用缓存
 let pineconeIndex: ReturnType<typeof pinecone.index> | null = null;
 
-function getIndex() {
+export function getIndex() {
   if (!pineconeIndex) {
     pineconeIndex = pinecone.index({ name: INDEX_NAME });
   }
@@ -67,6 +66,7 @@ interface VectorRecord {
     chunkIndex: number;
     version: number;    // 版本号，用于增量更新判断
     updatedAt: number; // 更新时间
+    userId: string;     // 用户ID，用于多用户隔离
   };
 }
 
@@ -142,6 +142,7 @@ async function withRetry<T>(
  * @param startIndex 起始索引（用于续传时避免ID冲突）
  * @param onProgress 进度回调函数
  * @param version 版本号（时间戳），用于增量更新判断
+ * @param userId 用户ID，用于多用户隔离
  */
 export async function addDocumentChunks(
   chunks: string[],
@@ -149,7 +150,8 @@ export async function addDocumentChunks(
   documentName: string,
   startIndex: number = 0,
   onProgress?: ProgressCallback,
-  version?: number
+  version?: number,
+  userId?: string
 ): Promise<number> {
   const index = getIndex();
   const totalChunks = chunks.length;
@@ -176,6 +178,7 @@ export async function addDocumentChunks(
         chunkIndex: startIndex + batchStart + i,
         version: now,
         updatedAt: now,
+        userId: userId || 'anonymous',
       },
     }));
 
@@ -207,21 +210,31 @@ export async function addDocumentChunks(
 
 /**
  * 检索最相关的文档块
+ *
+ * @param query 查询文本
+ * @param topK 返回数量
+ * @param filterDocumentName 按文档名过滤（可选）
+ * @param userId 用户ID（必填，用于多用户隔离）
  */
 export async function retrieveRelevantChunks(
   query: string,
   topK: number = 5,
-  filterDocumentName?: string
+  filterDocumentName?: string,
+  userId?: string
 ): Promise<Array<{ id: string; content: string; score: number; metadata: unknown }>> {
   // 将查询转为向量
   const queryEmbedding = await getEmbedding(query);
 
   const index = getIndex();
 
-  // 构建过滤条件
-  const filter = filterDocumentName
-    ? { documentName: { $eq: filterDocumentName } }
-    : undefined;
+  // 构建过滤条件：强制按 userId 隔离
+  const filter: Record<string, unknown> = {};
+  if (userId) {
+    filter.userId = { $eq: userId };
+  }
+  if (filterDocumentName) {
+    filter.documentName = { $eq: filterDocumentName };
+  }
 
   // 查询 Pinecone（带重试）
   const results = await withRetry(
@@ -254,24 +267,92 @@ export async function retrieveRelevantChunks(
 
 /**
  * 删除文档的所有块
+ *
+ * @param documentId 文档ID
+ * @param userId 用户ID（必填，防止跨用户删除）
  */
-export async function deleteDocumentChunks(documentId: string): Promise<void> {
+export async function deleteDocumentChunks(documentId: string, userId?: string): Promise<void> {
   const index = getIndex();
 
   try {
-    // 通过 filter 直接删除匹配的向量（带重试）
+    // 构建过滤条件：必须匹配 documentId + userId（防止跨用户删除）
+    const filter: Record<string, unknown> = { documentId: { $eq: documentId } };
+    if (userId) {
+      filter.userId = { $eq: userId };
+    }
+
+    // 先 fetch 查所有匹配的向量 ID（避免 deleteMany 纯 filter 报 400）
+    const fetchResult = await (index.query as any)({
+      vector: new Array(1536).fill(0),
+      topK: 10000,
+      filter,
+      includeMetadata: false,
+    });
+
+    const matchIds = (fetchResult.matches || []).map((m: any) => m.id);
+
+    if (matchIds.length === 0) {
+      // 向量不存在，当作成功（幂等）
+      return;
+    }
+
+    // 按 ID 删除，避免 filter 400 问题
     await withRetry(
-      () => index.deleteMany({
-        filter: { documentId: { $eq: documentId } },
-      }),
+      () => index.deleteMany({ ids: matchIds }),
       {
         maxRetries: 2,
         initialDelayMs: 1000,
         operationName: 'deleteMany',
       }
     );
-  } catch (error) {
+  } catch (error: any) {
+    // 向量不存在（404）或 ID 不存在，当作成功（幂等）
+    if (
+      error?.message?.includes('404') ||
+      error?.message?.includes('Either') ||
+      error?.message?.includes('not found')
+    ) return;
     console.error('删除文档块失败:', error);
+  }
+}
+
+/**
+ * 清空向量数据库中的所有向量
+ * 注意：调用前请先检查向量库是否为空
+ *
+ * @param userId 用户ID（可选）。如果不传，删除所有向量；如果传了，只删除该用户的向量
+ */
+export async function deleteAllVectors(userId?: string): Promise<void> {
+  const index = getIndex();
+
+  try {
+    if (userId) {
+      // 按 userId 过滤删除：deleteMany 原生支持 filter
+      console.log(`[Pinecone] 按 userId=${userId} 过滤删除向量`);
+      await withRetry(
+        () => index.deleteMany({ filter: { userId: { $eq: userId } } }),
+        {
+          maxRetries: 3,
+          initialDelayMs: 1000,
+          operationName: 'deleteAll (by userId)',
+        }
+      );
+      console.log('[Pinecone] 已删除该用户的所有向量');
+    } else {
+      // 不传 userId，删除所有向量
+      await withRetry(
+        () => index.deleteAll(),
+        {
+          maxRetries: 3,
+          initialDelayMs: 1000,
+          operationName: 'deleteAll',
+        }
+      );
+      console.log('[Pinecone] 已清空所有向量');
+    }
+  } catch (error) {
+    console.error('清空向量数据库失败:', error);
+    throw error;
   }
 }
 
@@ -297,5 +378,86 @@ export async function getCollectionStats(): Promise<{
     };
   } catch {
     return { count: 0, documents: 0 };
+  }
+}
+
+/**
+ * 获取用户文档统计
+ *
+ * @param userId 用户ID
+ * @returns 用户在 Pinecone 中的文档统计
+ */
+export async function getUserStats(userId: string): Promise<{
+  totalChunks: number;
+  totalDocuments: number;
+}> {
+  const index = getIndex();
+  const documentIds = new Set<string>();
+
+  try {
+    // 单次查询获取该用户所有向量（上限 10000）
+    const result = await (index.query as any)({
+      vector: new Array(1536).fill(0),
+      topK: 10000,
+      filter: { userId: { $eq: userId } },
+      includeMetadata: true,
+    });
+
+    const matches = result.matches || [];
+    for (const match of matches) {
+      const docId = match.metadata?.documentId as string | undefined;
+      if (docId) documentIds.add(docId);
+    }
+
+    return {
+      totalChunks: matches.length,
+      totalDocuments: documentIds.size,
+    };
+  } catch {
+    return { totalChunks: 0, totalDocuments: 0 };
+  }
+}
+
+/**
+ * 获取用户所有 chunk 的原文（用于 BM25 检索）
+ *
+ * @param userId 用户ID
+ * @param topK 最大返回数量（默认 10000）
+ * @returns BM25Doc[] 格式的文档列表
+ */
+export async function getAllUserChunkContents(
+  userId: string,
+  topK: number = 10000
+): Promise<Array<{ id: string; content: string; metadata: Record<string, unknown> }>> {
+  const index = getIndex();
+
+  try {
+    // 单次查询，上限为 topK
+    const result = await (index.query as any)({
+      vector: new Array(1536).fill(0),
+      topK,
+      filter: { userId: { $eq: userId } },
+      includeMetadata: true,
+    });
+
+    const matches = result.matches || [];
+    return matches
+      .map((match: any) => {
+        const content = match.metadata?.content as string | undefined;
+        if (!content) return null;
+        return {
+          id: match.id,
+          content,
+          metadata: {
+            documentId: match.metadata?.documentId,
+            documentName: match.metadata?.documentName,
+            chunkIndex: match.metadata?.chunkIndex,
+          },
+        };
+      })
+      .filter((item: any) => item !== null);
+  } catch (error) {
+    console.error('[Pinecone] getAllUserChunkContents 失败:', error);
+    return [];
   }
 }

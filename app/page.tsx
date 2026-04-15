@@ -4,16 +4,21 @@ import { useState, useCallback, useEffect } from 'react';
 import { useChat } from '@/hooks/use-chat';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useDocumentIndex } from '@/hooks/use-document-index';
+import { useAuth } from '@/components/auth/auth-context';
 import { MessageList } from '@/components/chat/message-list';
 import { ChatInput } from '@/components/chat/chat-input';
 import { Sidebar } from '@/components/chat/sidebar';
 import { SettingsModal } from '@/components/chat/settings-modal';
 import { ModeTabs, type ChatMode } from '@/components/chat/header/mode-tabs';
+import { ModelSelect } from '@/components/chat/header/model-select';
 import { ContextBar } from '@/components/chat/header/context-bar';
 import { EmptyState } from '@/components/chat/message/empty-state';
 import { MobileSettingsSheet } from '@/components/chat/mobile-settings-sheet';
+import { ToastContainer, showToast } from '@/components/ui/toast';
+import { UserMenu } from '@/components/chat/header/user-menu';
 
 export default function ChatPage() {
+  const { user, loading } = useAuth();
   const {
     chats,
     currentChat,
@@ -73,10 +78,10 @@ export default function ChatPage() {
   } = useDocumentIndex({
     onUploadComplete: () => {
       setError(null);
+      showToast('上传成功', 'success');
     },
     onError: (errMsg) => {
-      setError(errMsg);
-      setTimeout(() => setError(null), 5000);
+      showToast(errMsg, 'error');
     },
     onIndexComplete: () => {
       setError(null);
@@ -149,15 +154,25 @@ export default function ChatPage() {
     setMode(newMode);
     if (newMode === 'agent') {
       setAgent(true);
+    } else {
+      setAgent(false);
     }
   }, []);
 
-  const handleAgentChange = useCallback((enabled: boolean) => {
-    setAgent(enabled);
-    if (enabled && mode === 'chat') {
-      // 可选：切换到 Agent 模式
-    }
-  }, [mode]);
+  // Auth 加载中
+  if (loading) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'var(--bg-primary)',
+      }}>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>加载中...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="chat-container">
@@ -216,7 +231,7 @@ export default function ChatPage() {
         onDrop={handleMainDrop}
       >
         {/* 头部 - 简化版 */}
-        <header className={`chat-header ${agent ? 'agent-mode' : ''}`}>
+        <header className={`chat-header ${!isMobile && agent ? 'agent-mode' : ''}`}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {/* 移动端菜单按钮 */}
             <button
@@ -236,32 +251,11 @@ export default function ChatPage() {
               ☰
             </button>
 
-            {/* 标题 - 移动端显示当前对话标题或模式标识 */}
+            {/* 标题 - 移动端显示当前对话标题 */}
             {isMobile ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {agent ? (
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '4px 10px',
-                      backgroundColor: 'var(--accent-green-subtle)',
-                      border: '1px solid var(--accent-green-dim)',
-                      borderRadius: 'var(--radius-full)',
-                      fontSize: '11px',
-                      fontWeight: 500,
-                      color: 'var(--accent-green)',
-                    }}
-                  >
-                    🤖 Agent 模式
-                  </span>
-                ) : (
-                  <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
-                    {currentChat?.title || '新对话'}
-                  </span>
-                )}
-              </div>
+              <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
+                {currentChat?.title || '新对话'}
+              </span>
             ) : (
               <h1>{currentChat?.title || '新对话'}</h1>
             )}
@@ -273,36 +267,36 @@ export default function ChatPage() {
               <ModeTabs activeMode={mode} onChange={handleModeChange} />
             )}
 
-            {/* 设置按钮 */}
-            <button
-              onClick={() => isMobile ? setShowMobileSettings(true) : setShowSettings(true)}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-                fontSize: '18px',
-                padding: '4px 8px',
-                borderRadius: '6px',
-              }}
-              title="设置"
-            >
-              {isMobile ? '⚡' : '⚙️'}
-            </button>
+            {/* 移动端设置按钮 */}
+            {isMobile && (
+              <button
+                onClick={() => setShowMobileSettings(true)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontSize: '18px',
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                }}
+                title="设置"
+              >
+                ⚡
+              </button>
+            )}
 
             {/* 模型选择 */}
             {!isMobile && (
-              <select
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                className="model-select"
-              >
-                <option value="qwen3-max">Qwen3 Max</option>
-                <option value="qwen3-max-preview">Qwen3 Max Preview</option>
-                <option value="qwen3.6-plus">Qwen3.6 Plus</option>
-                <option value="qwen-math-turbo">Qwen Math Turbo</option>
-                <option value="glm-5">GLM-5</option>
-              </select>
+              <ModelSelect value={selectedModel} onChange={setSelectedModel} />
+            )}
+
+            {/* 用户菜单 */}
+            {user && (
+              <UserMenu
+                isMobile={isMobile}
+                onSettingsClick={() => setShowSettings(true)}
+              />
             )}
           </div>
         </header>
@@ -323,7 +317,6 @@ export default function ChatPage() {
             queryExpansion={queryExpansion}
             onQueryExpansionChange={setQueryExpansion}
             agent={agent}
-            onAgentChange={handleAgentChange}
             react={react}
             onReactChange={setReact}
           />
@@ -402,12 +395,10 @@ export default function ChatPage() {
           onThinkingChange={setThinking}
           webSearch={webSearch}
           onWebSearchChange={setWebSearch}
-          queryExpansion={queryExpansion}
-          onQueryExpansionChange={setQueryExpansion}
           agent={agent}
-          onAgentChange={handleAgentChange}
           react={react}
           onReactChange={setReact}
+          onSettingsClick={() => setShowMobileSettings(true)}
         />
 
         {/* 设置模态框 */}
@@ -416,16 +407,23 @@ export default function ChatPage() {
           onClose={() => setShowSettings(false)}
           onClearHistory={() => {
             localStorage.removeItem('rag_chat_history');
-            window.location.reload();
+            showToast('已清空所有对话', 'success');
+            setTimeout(() => window.location.reload(), 500);
           }}
-          onClearDocuments={clearAllDocuments}
+          onClearDocuments={async () => {
+            const result = await clearAllDocuments();
+            if (result.success) {
+              showToast(result.message || '已清空', 'success');
+            } else {
+              showToast(result.message || '清空失败', 'error');
+            }
+          }}
         />
 
         {/* 移动端设置面板 */}
         <MobileSettingsSheet
           isOpen={showMobileSettings}
           onClose={() => setShowMobileSettings(false)}
-          mode={mode}
           thinking={thinking}
           onThinkingChange={setThinking}
           webSearch={webSearch}
@@ -433,12 +431,12 @@ export default function ChatPage() {
           queryExpansion={queryExpansion}
           onQueryExpansionChange={setQueryExpansion}
           agent={agent}
-          onAgentChange={handleAgentChange}
+          onAgentChange={setAgent}
           react={react}
           onReactChange={setReact}
-          useRAG={useRAG}
-          onUseRAGChange={setUseRAG}
         />
+
+        <ToastContainer />
       </div>
     </div>
   );

@@ -9,8 +9,7 @@
  */
 
 import OpenAI from 'openai';
-import { hybridSearchWithHyDE } from '@/lib/search';
-import { getAllChunksFromStore, getChunksByDocument } from '@/lib/chunks-store';
+import { hybridSearchWithHyDE, getChunksForHybridSearch } from '@/lib/search';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -22,6 +21,7 @@ const openai = new OpenAI({
 // ============================================================
 
 export async function POST(req: Request) {
+  const userId = req.headers.get('x-user-id') || undefined;
   try {
     const startTime = Date.now();
     const {
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
       useRAG,
       documentName,
       queryExpansion, // HyDE
-      hybridSearch,   // 混合检索开关
+      hybridSearch,  // 混合检索开关
       thinking,       // 深度思考开关
       webSearch,      // 联网搜索开关
       summary,        // 对话历史摘要（记忆压缩）
@@ -46,6 +46,7 @@ export async function POST(req: Request) {
     console.log(`[入口] thinking: ${thinking}, webSearch: ${webSearch}, queryExpansion: ${queryExpansion}, hybridSearch: ${hybridSearch}`);
     console.log(`[入口] summary: ${summary ? '有' : '无'}`);
     console.log(`[入口] memoryContext: ${memoryContext ? '有' : '无'}`);
+    console.log(`[入口] userId: ${userId || 'anonymous'}`);
     if (memoryContext) {
       console.log(`[入口] memoryContext 内容:\n${memoryContext}`);
     }
@@ -71,6 +72,8 @@ export async function POST(req: Request) {
     let sources: unknown[] = [];
     let hydeTime = 0;
     let correctionTime = 0;
+    let bm25Time = 0;
+    let rrfTime = 0;
     let wasCorrected = false;
 
     // 如果启用 RAG，检索相关文档
@@ -93,15 +96,11 @@ export async function POST(req: Request) {
         }
       }
 
-      // 如果启用混合检索，从 chunks-store 获取所有 chunks
+      // 如果启用混合检索，从 Pinecone 获取用户所有 chunk 原文（用于 BM25）
       let storeChunks;
       if (hybridSearch === true) {
-        if (documentName) {
-          storeChunks = await getChunksByDocument(documentName);
-        } else {
-          storeChunks = await getAllChunksFromStore();
-        }
-        console.log(`[混合检索] 从 chunks-store 加载了 ${storeChunks.length} 个 chunks`);
+        storeChunks = await getChunksForHybridSearch(userId, documentName);
+        console.log(`[混合检索] 从 Pinecone 加载了 ${storeChunks.length} 个 chunks`);
       }
 
       // 执行混合检索 + HyDE 修正
@@ -113,12 +112,15 @@ export async function POST(req: Request) {
           useHyDE: queryExpansion === true,
           useHybrid: hybridSearch === true,
           model: selectedModel,
+          userId,
         },
         storeChunks
       );
 
       hydeTime = stats.hydeTime + stats.correctionTime;
       correctionTime = stats.correctionTime;
+      bm25Time = stats.bm25Time;
+      rrfTime = stats.rrfTime;
       wasCorrected = stats.wasCorrected;
 
       if (results.length > 0) {
@@ -132,7 +134,6 @@ export async function POST(req: Request) {
         sources = results.map((r, idx) => ({
           content: r.content.slice(0, 100) + '...',
           score: r.score,
-          rrfScore: (r as unknown as { rrfScore?: number }).rrfScore,
           source: r.source,
           metadata: r.metadata,
         }));
@@ -252,7 +253,7 @@ export async function POST(req: Request) {
           console.log(`[HyDE] ${wasCorrected ? '假设答案已修正' : '假设答案验证通过'}`);
         }
         if (hybridSearch) {
-          console.log(`[混合检索] 启用`);
+          console.log(`[混合检索] 启用 (BM25: ${bm25Time}ms, RRF: ${rrfTime}ms)`);
         }
         if (enableThinking) {
           console.log(`[深度思考] 启用`);
