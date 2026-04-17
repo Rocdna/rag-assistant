@@ -35,6 +35,10 @@ export async function POST(req: Request) {
     const userId = req.headers.get('x-user-id');
     const params: IndexParams = await req.json();
 
+    if (!userId) {
+      return Response.json({ error: '缺少用户身份' }, { status: 401 });
+    }
+
     if (!params.documentId || !params.content) {
       return Response.json({ error: '缺少必要参数' }, { status: 400 });
     }
@@ -43,10 +47,10 @@ export async function POST(req: Request) {
     const wantsStream = acceptHeader?.includes('text/event-stream');
 
     if (wantsStream) {
-      return handleStreamingIndex(params, userId || undefined);
+      return handleStreamingIndex(params, userId);
     }
 
-    return handleNormalIndex(params, userId || undefined);
+    return handleNormalIndex(params, userId);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     return Response.json({ error: message }, { status: 500 });
@@ -56,7 +60,7 @@ export async function POST(req: Request) {
 /**
  * 普通索引模式
  */
-async function handleNormalIndex(params: IndexParams, userId?: string): Promise<Response> {
+async function handleNormalIndex(params: IndexParams, userId: string): Promise<Response> {
   const { documentId, documentName, content, chunkSize, chunkOverlap } = params;
   const docName = documentName || '未知文档';
   const now = Date.now();
@@ -80,7 +84,7 @@ async function handleNormalIndex(params: IndexParams, userId?: string): Promise<
 /**
  * 流式索引模式 - 支持进度反馈
  */
-async function handleStreamingIndex(params: IndexParams, userId?: string): Promise<Response> {
+async function handleStreamingIndex(params: IndexParams, userId: string): Promise<Response> {
   const { documentId, documentName, content, chunkSize, chunkOverlap } = params;
   const docName = documentName || '未知文档';
   const now = Date.now();

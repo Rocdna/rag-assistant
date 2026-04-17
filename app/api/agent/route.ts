@@ -83,7 +83,7 @@ const REACT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 // 工具执行
 // ============================================================
 
-async function executeTool(toolCall: { name: string; arguments: string }, userId?: string): Promise<ToolResult> {
+async function executeTool(toolCall: { name: string; arguments: string }, userId: string): Promise<ToolResult> {
   const executor = TOOL_EXECUTORS[toolCall.name as keyof typeof TOOL_EXECUTORS];
   if (!executor) {
     return { success: false, result: '', error: `未知工具: ${toolCall.name}` };
@@ -307,8 +307,12 @@ async function streamLLMResponse(
 
 export async function POST(req: Request) {
   try {
-    const userId = req.headers.get('x-user-id') || undefined;
+    const userId = req.headers.get('x-user-id');
     const { query, messages, model, react = false, summary, memoryContext } = await req.json();
+
+    if (!userId) {
+      return Response.json({ error: '缺少用户身份' }, { status: 401 });
+    }
 
     console.log('\n========== [🤖 Agent API 入口] ==========');
     console.log(`[入口] query: "${query}"`);
@@ -316,7 +320,6 @@ export async function POST(req: Request) {
     console.log(`[入口] react 模式: ${react}`);
     console.log(`[入口] summary: ${summary ? '有 (' + summary.slice(0, 50) + '...)' : '无'}`);
     console.log(`[入口] memoryContext: ${memoryContext ? '有 (' + memoryContext.slice(0, 50) + '...)' : '无'}`);
-    console.log(`[入口] userId: ${userId || 'anonymous'}`);
 
     if (!query) {
       return Response.json({ error: '问题不能为空' }, { status: 400 });
@@ -391,8 +394,8 @@ export async function POST(req: Request) {
 async function handleNormalMode(
   conversationMessages: OpenAI.Chat.ChatCompletionMessageParam[],
   model: string,
-  signal?: AbortSignal,
-  userId?: string
+  signal: AbortSignal | undefined,
+  userId: string
 ): Promise<Response> {
   let toolCallCount = 0;
 
@@ -464,8 +467,8 @@ async function handleNormalMode(
 async function handleReactMode(
   conversationMessages: OpenAI.Chat.ChatCompletionMessageParam[],
   model: string,
-  signal?: AbortSignal,
-  userId?: string
+  signal: AbortSignal | undefined,
+  userId: string
 ): Promise<Response> {
   const encoder = new TextEncoder();
   let controller: ReadableStreamDefaultController;
@@ -514,7 +517,7 @@ async function runReactLoop(
   signal: AbortSignal | undefined,
   pushStep: (type: string, content: string) => void,
   done: () => void,
-  userId?: string
+  userId: string
 ) {
   let toolCallCount = 0;
 

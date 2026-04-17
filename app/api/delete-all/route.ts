@@ -8,7 +8,11 @@ import { getIndex, deleteAllVectors } from '@/lib/pinecone';
 
 export async function DELETE(req: Request) {
   try {
-    const userId = req.headers.get('x-user-id') || undefined;
+    const userId = req.headers.get('x-user-id');
+
+    if (!userId) {
+      return Response.json({ error: '缺少用户身份' }, { status: 401 });
+    }
 
     // 先检查向量库是否为空
     const stats = await getIndex().describeIndexStats();
@@ -22,7 +26,7 @@ export async function DELETE(req: Request) {
       });
     }
 
-    // 删除 Pinecone 中的向量（按 userId 过滤；无 userId 则全部删除）
+    // 按 userId 删除该用户的所有向量
     await deleteAllVectors(userId);
 
     return Response.json({

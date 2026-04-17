@@ -33,6 +33,10 @@ export async function executeDocumentTool(
           return { success: false, result: '', error: 'query 参数不能为空' };
         }
 
+        if (!userId) {
+          return { success: false, result: '', error: '缺少用户身份' };
+        }
+
         const topK = 5;
         const results = await retrieveRelevantChunks(query, topK, documentName, userId);
 

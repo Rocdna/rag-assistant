@@ -18,7 +18,7 @@ import { ToastContainer, showToast } from '@/components/ui/toast';
 import { UserMenu } from '@/components/chat/header/user-menu';
 
 export default function ChatPage() {
-  const { user, loading } = useAuth();
+  const { user, userId, loading } = useAuth();
   const {
     chats,
     currentChat,
@@ -76,6 +76,7 @@ export default function ChatPage() {
     handleUploadClick,
     handleFileSelect,
   } = useDocumentIndex({
+    userId: userId ?? undefined,
     onUploadComplete: () => {
       setError(null);
       showToast('上传成功', 'success');

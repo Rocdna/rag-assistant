@@ -149,9 +149,9 @@ export async function addDocumentChunks(
   documentId: string,
   documentName: string,
   startIndex: number = 0,
-  onProgress?: ProgressCallback,
-  version?: number,
-  userId?: string
+  onProgress: ProgressCallback | undefined = undefined,
+  version: number = Date.now(),
+  userId: string
 ): Promise<number> {
   const index = getIndex();
   const totalChunks = chunks.length;
@@ -178,7 +178,7 @@ export async function addDocumentChunks(
         chunkIndex: startIndex + batchStart + i,
         version: now,
         updatedAt: now,
-        userId: userId || 'anonymous',
+        userId,
       },
     }));
 
@@ -219,8 +219,8 @@ export async function addDocumentChunks(
 export async function retrieveRelevantChunks(
   query: string,
   topK: number = 5,
-  filterDocumentName?: string,
-  userId?: string
+  filterDocumentName: string | undefined = undefined,
+  userId: string
 ): Promise<Array<{ id: string; content: string; score: number; metadata: unknown }>> {
   // 将查询转为向量
   const queryEmbedding = await getEmbedding(query);
@@ -228,10 +228,7 @@ export async function retrieveRelevantChunks(
   const index = getIndex();
 
   // 构建过滤条件：强制按 userId 隔离
-  const filter: Record<string, unknown> = {};
-  if (userId) {
-    filter.userId = { $eq: userId };
-  }
+  const filter: Record<string, unknown> = { userId: { $eq: userId } };
   if (filterDocumentName) {
     filter.documentName = { $eq: filterDocumentName };
   }
@@ -271,15 +268,12 @@ export async function retrieveRelevantChunks(
  * @param documentId 文档ID
  * @param userId 用户ID（必填，防止跨用户删除）
  */
-export async function deleteDocumentChunks(documentId: string, userId?: string): Promise<void> {
+export async function deleteDocumentChunks(documentId: string, userId: string): Promise<void> {
   const index = getIndex();
 
   try {
     // 构建过滤条件：必须匹配 documentId + userId（防止跨用户删除）
-    const filter: Record<string, unknown> = { documentId: { $eq: documentId } };
-    if (userId) {
-      filter.userId = { $eq: userId };
-    }
+    const filter: Record<string, unknown> = { documentId: { $eq: documentId }, userId: { $eq: userId } };
 
     // 先 fetch 查所有匹配的向量 ID（避免 deleteMany 纯 filter 报 400）
     const fetchResult = await (index.query as any)({
@@ -320,36 +314,23 @@ export async function deleteDocumentChunks(documentId: string, userId?: string):
  * 清空向量数据库中的所有向量
  * 注意：调用前请先检查向量库是否为空
  *
- * @param userId 用户ID（可选）。如果不传，删除所有向量；如果传了，只删除该用户的向量
+ * @param userId 用户ID（必填）
  */
-export async function deleteAllVectors(userId?: string): Promise<void> {
+export async function deleteAllVectors(userId: string): Promise<void> {
   const index = getIndex();
 
   try {
-    if (userId) {
-      // 按 userId 过滤删除：deleteMany 原生支持 filter
-      console.log(`[Pinecone] 按 userId=${userId} 过滤删除向量`);
-      await withRetry(
-        () => index.deleteMany({ filter: { userId: { $eq: userId } } }),
-        {
-          maxRetries: 3,
-          initialDelayMs: 1000,
-          operationName: 'deleteAll (by userId)',
-        }
-      );
-      console.log('[Pinecone] 已删除该用户的所有向量');
-    } else {
-      // 不传 userId，删除所有向量
-      await withRetry(
-        () => index.deleteAll(),
-        {
-          maxRetries: 3,
-          initialDelayMs: 1000,
-          operationName: 'deleteAll',
-        }
-      );
-      console.log('[Pinecone] 已清空所有向量');
-    }
+    // 按 userId 过滤删除
+    console.log(`[Pinecone] 按 userId=${userId} 过滤删除向量`);
+    await withRetry(
+      () => index.deleteMany({ filter: { userId: { $eq: userId } } }),
+      {
+        maxRetries: 3,
+        initialDelayMs: 1000,
+        operationName: 'deleteAll (by userId)',
+      }
+    );
+    console.log('[Pinecone] 已删除该用户的所有向量');
   } catch (error) {
     console.error('清空向量数据库失败:', error);
     throw error;

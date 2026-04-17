@@ -39,7 +39,7 @@ export type ToolNameType = typeof ToolName[keyof typeof ToolName];
 // 工具执行器类型
 // ============================================================
 
-type ToolExecutor = (toolName: string, args: Record<string, unknown>) => Promise<ToolResult>;
+type ToolExecutor = (toolName: string, args: Record<string, unknown>, userId?: string) => Promise<ToolResult>;
 
 // ============================================================
 // OpenAI tools 格式定义

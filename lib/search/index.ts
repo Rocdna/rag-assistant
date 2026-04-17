@@ -7,4 +7,4 @@
  */
 
 export * from './hyde';
-export { hybridSearchWithHyDE, type SearchResult, type SearchStats, type HybridSearchOptions } from './hybrid-search';
+export { hybridSearchWithHyDE, getChunksForHybridSearch, type SearchResult, type SearchStats, type HybridSearchOptions } from './hybrid-search';

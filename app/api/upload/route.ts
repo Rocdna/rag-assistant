@@ -11,12 +11,15 @@ export const maxDuration = 120; // 120秒超时
 
 export async function POST(req: Request) {
   try {
+    const userId = req.headers.get('x-user-id');
+    if (!userId) {
+      return Response.json({ error: '缺少用户身份' }, { status: 401 });
+    }
+
     console.log(`[${new Date().toISOString()}] 开始处理上传请求`);
     const startTime = Date.now();
 
     const formData = await req.formData();
-
-    console.log(`解析 formData 耗时: ${Date.now() - startTime}ms`);
 
     const file = formData.get('file') as File;
 

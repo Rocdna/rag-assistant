@@ -24,6 +24,7 @@ interface IndexingProgress {
 }
 
 interface UseDocumentIndexOptions {
+  userId?: string;
   onUploadComplete?: (doc: Document & { content: string }) => void;
   onError?: (error: string) => void;
   onIndexComplete?: (docId: string, chunkCount: number) => void;
@@ -33,7 +34,7 @@ interface UseDocumentIndexOptions {
  * 文档上传与索引 Hook
  */
 export function useDocumentIndex(options: UseDocumentIndexOptions = {}) {
-  const { onUploadComplete, onError, onIndexComplete } = options;
+  const { userId, onUploadComplete, onError, onIndexComplete } = options;
 
   const [documents, setDocuments] = useState<(Document & { content?: string })[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -263,7 +264,7 @@ export function useDocumentIndex(options: UseDocumentIndexOptions = {}) {
       await fetch('/api/delete', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ documentId: docId }),
+        body: JSON.stringify({ documentId: docId, userId }),
       });
     } catch (error) {
       console.error('删除文档向量失败:', error);

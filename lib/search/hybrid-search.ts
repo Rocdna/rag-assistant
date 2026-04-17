@@ -37,7 +37,7 @@ export interface HybridSearchOptions {
   useHyDE?: boolean;
   useHybrid?: boolean;
   model?: string;
-  userId?: string;  // 用户ID，用于多用户隔离
+  userId: string;  // 用户ID，用于多用户隔离
 }
 
 /**
@@ -159,11 +159,10 @@ export async function hybridSearchWithHyDE(
  * 从 Pinecone 获取用户所有 chunk 原文（用于 BM25）
  */
 export async function getChunksForHybridSearch(
-  userId?: string,
+  userId: string,
   documentName?: string,
   topK: number = 10000
 ): Promise<BM25Doc[]> {
-  if (!userId) return [];
 
   // 从 Pinecone 拉取该用户的所有 chunk
   const allChunks = await getAllUserChunkContents(userId, topK);

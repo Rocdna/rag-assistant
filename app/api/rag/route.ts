@@ -21,7 +21,10 @@ const openai = new OpenAI({
 // ============================================================
 
 export async function POST(req: Request) {
-  const userId = req.headers.get('x-user-id') || undefined;
+  const userId = req.headers.get('x-user-id');
+  if (!userId) {
+    return Response.json({ error: '缺少用户身份' }, { status: 401 });
+  }
   try {
     const startTime = Date.now();
     const {
