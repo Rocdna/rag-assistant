@@ -67,6 +67,84 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
+# GitHub 上传规范（双分支策略）
+
+## 分支结构
+
+| 分支 | 用途 | 包含文件 |
+|------|------|----------|
+| `master` | 线上部署（EdgeOne Pages） | `cloud-functions/` |
+| `development` | 本地开发 | `proxy.ts` + `app/api/` + `cloud-functions/` |
+
+## 文件差异
+
+| 文件 | master | development |
+|------|--------|-------------|
+| `proxy.ts` | ❌ | ✅ |
+| `app/api/` | ❌ | ✅ |
+| `cloud-functions/` | ✅ | ✅ |
+
+## 上传流程
+
+### 1. 每次开发完成后，提交到 development
+
+```bash
+git checkout development
+git add .
+git commit -m "feat: 你的提交信息"
+git push origin development
+```
+
+### 2. 发布到 master（部署）
+
+**方式 A：手动选择性合并（推荐）**
+
+```bash
+# 切换到 master
+git checkout master
+
+# 合并 development，但不自动提交
+git merge --no-commit development
+
+# 撤销 app/api/ 和 proxy.ts（部署分支不需要）
+git reset HEAD app/
+git reset HEAD proxy.ts
+
+# 删除这两个目录/文件
+rm -rf app/api/
+rm -f proxy.ts
+
+# 提交
+git commit -m "chore: 合并 development 到部署分支"
+
+# 推送到 master 触发 EdgeOne 部署
+git push origin master
+```
+
+**方式 B：Cherry-pick 特定 commit（如果只要部分改动）**
+
+```bash
+git checkout master
+git cherry-pick <commit-hash>
+# 如果有冲突，手动解决后 git add + git commit
+git push origin master
+```
+
+## 开发时注意事项
+
+- **同时更新两套 API**：修改 `app/api/` 时，同步修改 `cloud-functions/api/`（两者内容保持一致）
+- **中间件**：`proxy.ts` 只在 development 分支，`cloud-functions/[[default]].ts` 两分支都要有
+
+## 验证分支结构
+
+```bash
+# 查看 master 有哪些文件
+git ls-tree -r master --name-only | grep -E "(proxy|app/api|cloud-functions)"
+
+# 查看 development 有哪些文件
+git ls-tree -r development --name-only | grep -E "(proxy|app/api|cloud-functions)"
+```
+
 # 代码格式规范
 
 ## 注释规范
