@@ -116,7 +116,8 @@ async function withRetry<T>(
         lastError.message.includes('ECONNRESET') ||
         lastError.message.includes('ETIMEDOUT') ||
         lastError.message.includes('ConnectTimeoutError') ||
-        lastError.message.includes('PineconeConnectionError');
+        lastError.message.includes('PineconeConnectionError') ||
+        lastError.message.includes('Request failed to reach');
 
       if (!isRetryable) {
         console.error(`[Pinecone] ${operationName} 失败（非网络错误，不重试）:`, lastError.message);

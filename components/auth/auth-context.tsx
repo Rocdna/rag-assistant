@@ -35,14 +35,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // 获取初始 session（包含处理 OAuth 回调）
     supabase.auth.getSession().then(({ data: { session }, error }) => {
-      console.log('[Auth] getSession:', { session: session?.user?.email, error });
       setUser(session?.user ?? null);
       setLoading(false);
     });
 
     // 监听 auth 变化
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('[Auth] onAuthStateChange:', event, { user: session?.user?.email });
       setUser(session?.user ?? null);
       setLoading(false);
     });
@@ -56,7 +54,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signUp = async (email: string, password: string) => {
-    console.log('[Auth] signUp start:', { email });
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -64,18 +61,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
-    console.log('[Auth] signUp result:', {
-      user: data.user?.email,
-      session: !!data.session,
-      error: error?.message,
-      code: error?.code,
-      status: error?.status,
-    });
     return { error: error?.message || null };
   };
 
   const signInWithOAuth = async (provider: 'github' | 'google') => {
-    console.log('[Auth] signInWithOAuth start:', provider);
     const redirectTo = `${window.location.origin}/auth/callback`;
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
@@ -84,10 +73,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
     });
     if (error) {
-      console.log('[Auth] signInWithOAuth error:', error);
       return { error: error.message };
     }
-    console.log('[Auth] signInWithOAuth success, redirecting to:', redirectTo);
     return { error: null };
   };
 

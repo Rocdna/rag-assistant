@@ -34,7 +34,7 @@ export default function ChatPage() {
     handleInputChange,
     setSelectedModel,
     cancel,
-  } = useChat();
+  } = useChat(userId ?? undefined);
 
   const isMobile = useIsMobile();
 
@@ -89,13 +89,7 @@ export default function ChatPage() {
     },
   });
 
-  // 如果没有已索引的文档，关闭 RAG
-  useEffect(() => {
-    const hasIndexedDocs = documents.some((d) => d.indexed);
-    if (!hasIndexedDocs) {
-      setUseRAG(false);
-    }
-  }, [documents]);
+  // RAG 开关完全由用户控制，不再自动关闭
 
   // 移动端保持侧边栏关闭
   useEffect(() => {
@@ -318,6 +312,7 @@ export default function ChatPage() {
             queryExpansion={queryExpansion}
             onQueryExpansionChange={setQueryExpansion}
             agent={agent}
+            onAgentChange={setAgent}
             react={react}
             onReactChange={setReact}
           />
@@ -407,7 +402,7 @@ export default function ChatPage() {
           isOpen={showSettings}
           onClose={() => setShowSettings(false)}
           onClearHistory={() => {
-            localStorage.removeItem('rag_chat_history');
+            localStorage.removeItem('rag_chat_history_');
             showToast('已清空所有对话', 'success');
             setTimeout(() => window.location.reload(), 500);
           }}

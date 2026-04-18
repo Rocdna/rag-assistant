@@ -64,18 +64,14 @@ export default function LoginPage() {
     setLoading(true);
 
     if (isLogin) {
-      console.log('[Login] submitting:', { email, isLogin });
       const result = await signIn(email, password);
-      console.log('[Login] result:', result);
       if (result.error) {
         setError(result.error);
       } else {
         router.push('/');
       }
     } else {
-      console.log('[Login] submitting:', { email, isLogin });
       const result = await signUp(email, password);
-      console.log('[Login] signUp result:', result);
       if (result.error) {
         setError(result.error);
       } else {

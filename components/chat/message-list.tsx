@@ -4,6 +4,38 @@ import React, { useRef, useEffect, useState, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatMessage } from '@/types/chat';
+// 文档引用高亮插件：把 [文件名-序号] 转成 mdast strong 节点
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const remarkDocRef = () => (tree: any) => {
+  const walk = (nodes: any[]) => {
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      if (node.type === 'text' && node.value) {
+        const text = node.value;
+        if (/\[.+?-\d+\]/.test(text)) {
+          const parts = text.split(/(\[[^\]]+?\-\d+\])/g);
+          if (parts.length > 1) {
+            // strong 节点是 mdast 的emphasis类型，带 children
+            const newNodes: any[] = [];
+            for (const part of parts) {
+              if (/\[.+?-\d+\]/.test(part)) {
+                newNodes.push({ type: 'strong', children: [{ type: 'text', value: part }] });
+              } else {
+                newNodes.push({ type: 'text', value: part });
+              }
+            }
+            nodes.splice(i, 1, ...newNodes);
+            i += newNodes.length - 1;
+          }
+        }
+      }
+      if (node.children) {
+        walk(node.children);
+      }
+    }
+  };
+  walk(tree.children);
+};
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -26,8 +58,11 @@ const MessageItem = memo(function MessageItem({
       <div className="message-content">
         {message.role === 'assistant' ? (
           <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
+            remarkPlugins={[remarkGfm, remarkDocRef]}
             components={{
+              strong: ({ children }) => (
+                <strong style={{ color: 'var(--accent)', fontWeight: 600 }}>{children}</strong>
+              ),
               code: ({ className, children, ...props }) => {
                 const isInline = !className;
                 return isInline ? (

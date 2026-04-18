@@ -47,6 +47,24 @@ export function UserMenu({ isMobile = false, onSettingsClick }: UserMenuProps) {
   // 获取显示名称
   const displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || '用户';
   const avatarUrl = user.user_metadata?.avatar_url;
+  const [avatarError, setAvatarError] = useState(false);
+
+  const showDefaultAvatar = !avatarUrl || avatarError;
+  const defaultAvatar = (
+    <div style={{
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'var(--accent-green)',
+      color: '#fff',
+      fontSize: '14px',
+      fontWeight: 700,
+    }}>
+      {displayName.charAt(0).toUpperCase()}
+    </div>
+  );
 
   if (isMobile) {
     // 移动端：只显示头像
@@ -72,10 +90,13 @@ export function UserMenu({ isMobile = false, onSettingsClick }: UserMenuProps) {
             boxShadow: '0 2px 8px rgba(16, 163, 127, 0.3)',
           }}
         >
-          {avatarUrl ? (
-            <img src={avatarUrl} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (
-            displayName.charAt(0).toUpperCase()
+          {showDefaultAvatar ? defaultAvatar : (
+            <img
+              src={avatarUrl}
+              alt={displayName}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              onError={() => setAvatarError(true)}
+            />
           )}
         </button>
 
@@ -235,10 +256,13 @@ export function UserMenu({ isMobile = false, onSettingsClick }: UserMenuProps) {
             boxShadow: '0 2px 6px rgba(16, 163, 127, 0.3)',
           }}
         >
-          {avatarUrl ? (
-            <img src={avatarUrl} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (
-            displayName.charAt(0).toUpperCase()
+          {showDefaultAvatar ? defaultAvatar : (
+            <img
+              src={avatarUrl}
+              alt={displayName}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              onError={() => setAvatarError(true)}
+            />
           )}
         </div>
         <span style={{ maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -295,10 +319,28 @@ export function UserMenu({ isMobile = false, onSettingsClick }: UserMenuProps) {
                   boxShadow: '0 2px 8px rgba(16, 163, 127, 0.3)',
                 }}
               >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+                {showDefaultAvatar ? (
+                  <div style={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'var(--accent-green)',
+                    color: '#fff',
+                    fontSize: '24px',
+                    fontWeight: 700,
+                    borderRadius: '50%',
+                  }}>
+                    {displayName.charAt(0).toUpperCase()}
+                  </div>
                 ) : (
-                  displayName.charAt(0).toUpperCase()
+                  <img
+                    src={avatarUrl}
+                    alt={displayName}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                    onError={() => setAvatarError(true)}
+                  />
                 )}
               </div>
               <div>

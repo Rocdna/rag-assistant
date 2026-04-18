@@ -10,9 +10,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Chat, ChatMessage } from '@/types/chat';
 import { generateId } from '@/lib/utils';
-import { generateMemoryContext, addFact } from '@/lib/memory';
-
-const STORAGE_KEY = 'rag_chat_history';
+import { generateMemoryContext, addFact, deleteSessionSummary, deleteFactsByChatId } from '@/lib/memory';
 
 // 记忆压缩配置
 const COMPRESSION_ROUND_THRESHOLD = 10;  // 超过多少轮对话时触发压缩
@@ -127,7 +125,7 @@ async function compressChatHistory(
 /**
  * 从对话历史中抽取重要信息并保存到记忆（使用后端 LLM API）
  */
-async function extractAndSaveMemories(messages: ChatMessage[], model: string): Promise<number> {
+async function extractAndSaveMemories(messages: ChatMessage[], model: string, userId?: string, chatId?: string): Promise<number> {
   try {
     // 调用后端 API 进行智能抽取
     const response = await fetch('/api/memory-extract', {
@@ -147,9 +145,9 @@ async function extractAndSaveMemories(messages: ChatMessage[], model: string): P
       return 0;
     }
 
-    // 保存抽取的记忆
+    // 保存抽取的记忆（session 级，绑定 chatId）
     for (const mem of memories) {
-      addFact(mem.key, mem.value, mem.context || summary, mem.confidence || 0.8);
+      addFact(mem.key, mem.value, mem.context || summary, mem.confidence || 0.8, userId, 'session', chatId);
     }
 
     console.log(`[记忆] LLM 智能抽取 ${memories.length} 条记忆`);
@@ -167,10 +165,12 @@ async function extractAndSaveMemories(messages: ChatMessage[], model: string): P
 /**
  * useChat Hook - 管理对话历史
  */
-export function useChat() {
+export function useChat(userId?: string) {
+  // 每次 userId 变化都生成新的 key（用 useMemo 确保计算结果被缓存）
+  const STORAGE_KEY = useMemo(() => `rag_chat_history_${userId || ''}`, [userId]);
+
   const [chats, setChats] = useState<Chat[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
-  const [pendingChatId, setPendingChatId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState('qwen3-max-preview');
@@ -183,8 +183,13 @@ export function useChat() {
     chatsRef.current = chats;
   }, [chats]);
 
-  // 初始化
+  // 标记"正在从 localStorage 恢复中"，防止 save effect 在 state 更新前就写入空数据
+  const isRestoringRef = useRef(false);
+
+  // userId 变化时（Auth 加载完成/退出），从新的 key 重新加载
   useEffect(() => {
+    if (!userId) return;
+    isRestoringRef.current = true;
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       try {
@@ -195,12 +200,15 @@ export function useChat() {
         console.error('Failed to load chats:', e);
       }
     }
-  }, []);
+    setTimeout(() => { isRestoringRef.current = false; }, 0);
+  }, [STORAGE_KEY, userId]);
 
   // 保存
   useEffect(() => {
+    if (!userId) return;
+    if (isRestoringRef.current) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ chats, currentChatId }));
-  }, [chats, currentChatId]);
+  }, [chats, currentChatId, STORAGE_KEY, userId]);
 
   const currentChat = useMemo(
     () => chats.find((c) => c.id === currentChatId) || null,
@@ -208,20 +216,15 @@ export function useChat() {
   );
 
   const visibleChats = useMemo(
-    () => chats.filter((c) => c.id !== pendingChatId),
-    [chats, pendingChatId]
+    () => chats,
+    [chats]
   );
 
-  const createChat = useCallback(() => {
+  const createChat = useCallback((): Chat => {
     // 清理所有空的对话（没有任何消息的）
     setChats((prev) => {
       return prev.filter((c) => c.messages.length > 0);
     });
-
-    // 如果当前有 pending chat 且是空的，先清除
-    if (pendingChatId) {
-      setChats((prev) => prev.filter((c) => c.id !== pendingChatId));
-    }
 
     const newChat: Chat = {
       id: generateId(),
@@ -234,40 +237,31 @@ export function useChat() {
       return [newChat, ...prev];
     });
     setCurrentChatId(newChat.id);
-    setPendingChatId(newChat.id);
     setInput('');
-    return newChat.id;
-  }, [pendingChatId]);
+    return newChat;
+  }, []);
 
   const switchChat = useCallback(
     (chatId: string) => {
-      // 切换前清理：如果有 pending 的空对话，删除它
-      if (pendingChatId && pendingChatId !== chatId) {
-        setChats((prev) => prev.filter((c) => c.id !== pendingChatId));
-      }
-      // 清除 pending 状态
-      setPendingChatId(null);
       setCurrentChatId(chatId);
       setInput('');
     },
-    [pendingChatId]
+    []
   );
 
   const deleteChat = useCallback(
     (chatId: string) => {
       setChats((prev) => {
         const newChats = prev.filter((c) => c.id !== chatId);
-        // 如果删除的是当前聊天，切换到第一个剩余的聊天
         if (currentChatId === chatId) {
           setCurrentChatId(newChats.length > 0 ? newChats[0].id : null);
         }
-        if (pendingChatId === chatId) {
-          setPendingChatId(null);
-        }
         return newChats;
       });
+      deleteSessionSummary(chatId, userId);
+      deleteFactsByChatId(chatId, userId);
     },
-    [currentChatId, pendingChatId]
+    [currentChatId, userId]
   );
 
   /**
@@ -289,12 +283,14 @@ export function useChat() {
       if (!input.trim() || isLoading) return;
 
       let chatId = currentChatId;
-      if (!chatId) {
-        chatId = createChat();
-      }
+      let targetChat: Chat | undefined;
 
-      if (chatId === pendingChatId) {
-        setPendingChatId(null);
+      if (!chatId) {
+        const newChat = createChat();
+        chatId = newChat.id;
+        targetChat = newChat;
+      } else {
+        targetChat = chatsRef.current.find((c) => c.id === chatId);
       }
 
       const userMessage: ChatMessage = {
@@ -309,8 +305,8 @@ export function useChat() {
       // 创建 AbortController
       abortControllerRef.current = new AbortController();
 
-      // 从 ref 读取当前聊天数据
-      const latestChat = chatsRef.current.find((c) => c.id === chatId);
+      // 从 ref 读取当前聊天数据（新建时用 targetChat，切换时从 ref 找）
+      const latestChat = targetChat || chatsRef.current.find((c) => c.id === chatId);
       const existingMessages = latestChat?.messages || [];
       const existingSummary = (latestChat as any)?.isCompressed ? (latestChat as any)?.summary : undefined;
       const isPreviouslyCompressed = (latestChat as any)?.isCompressed || false;
@@ -380,7 +376,7 @@ export function useChat() {
         let requestBody: Record<string, unknown>;
 
         // 加载用户记忆上下文
-        const memoryContext = generateMemoryContext();
+        const memoryContext = generateMemoryContext(userId);
 
         if (agent === true) {
           // Agent API - react 参数控制是否展示思考过程
@@ -393,10 +389,9 @@ export function useChat() {
             summary: existingSummary || undefined,
             memoryContext: memoryContext || undefined,
           };
-          console.log(`[📤 Agent 请求] query: "${input.trim().slice(0, 50)}..."`);
-          console.log(`[📤 Agent 请求] messages: ${allMessagesForApi.length} 条, summary: ${existingSummary ? '有' : '无'}, memoryContext: ${memoryContext ? '有' : '无'}`);
         } else if (useRAG) {
           // RAG API
+          apiEndpoint = '/api/rag';
           requestBody = {
             query: input.trim(),
             messages: allMessagesForApi.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
@@ -411,8 +406,6 @@ export function useChat() {
             summary: existingSummary || undefined,
             memoryContext: memoryContext || undefined,
           };
-          console.log(`[📤 RAG 请求] query: "${input.trim().slice(0, 50)}..."`);
-          console.log(`[📤 RAG 请求] messages: ${allMessagesForApi.length} 条, summary: ${existingSummary ? '有' : '无'}, memoryContext: ${memoryContext ? '有' : '无'}`);
         } else {
           // 普通 Chat API
           requestBody = {
@@ -422,30 +415,28 @@ export function useChat() {
             webSearch: webSearch || false,
             memoryContext: memoryContext || undefined,
           };
-          console.log(`[📤 Chat 请求] messages: ${allMessagesForApi.length} 条, memoryContext: ${memoryContext ? '有' : '无'}`);
-        }
-
-        // 记忆日志
-        if (memoryContext) {
-          console.log(`[📦 记忆上下文]\n${memoryContext}`);
-        }
-        if (existingSummary) {
-          console.log(`[📦 摘要上下文]\n${existingSummary.slice(0, 200)}...`);
         }
 
         // 异步抽取对话中的重要信息并存储（使用 LLM API）
-        extractAndSaveMemories(allMessagesForApi, selectedModel).then((saved) => {
+        extractAndSaveMemories(allMessagesForApi, selectedModel, userId, chatId).then((saved) => {
           if (saved > 0) {
             console.log(`[记忆] 已自动保存 ${saved} 条记忆`);
           }
         });
 
-        const response = await fetch(apiEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody),
-          signal: abortControllerRef.current.signal,
-        });
+        // 超时兜底：60 秒后自动取消请求
+        const timeout = setTimeout(() => abortControllerRef.current?.abort(), 60000);
+        let response: Response;
+        try {
+          response = await fetch(apiEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+            signal: abortControllerRef.current.signal,
+          });
+        } finally {
+          clearTimeout(timeout);
+        }
 
         if (!response.ok) {
           let errorMessage = `请求失败 (${response.status})`;
@@ -537,7 +528,6 @@ export function useChat() {
       } catch (error) {
         // 如果是取消请求，不删除消息（保留已生成的内容），追加省略号表示未完成
         if (error instanceof Error && error.name === 'AbortError') {
-          console.log('请求已取消');
           const finalContent = assistantContent ? `${assistantContent}...` : '...';
           setChats((prev) =>
             prev.map((chat) => {
@@ -586,7 +576,7 @@ export function useChat() {
         setIsLoading(false);
       }
     },
-    [input, currentChatId, isLoading, createChat, pendingChatId, selectedModel]
+    [input, currentChatId, isLoading, createChat, selectedModel]
   );
 
   /**

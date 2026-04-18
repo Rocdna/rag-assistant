@@ -12,25 +12,18 @@ export default function AuthCallbackPage() {
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
-    console.log('[Auth Callback] Page loaded, processing token...');
-
     supabase.auth.getSession().then(({ data: { session }, error }) => {
-      console.log('[Auth Callback] getSession result:', { session: session?.user?.email, error });
-
       if (error) {
-        console.error('[Auth Callback] Error:', error);
         setStatus('error');
         setErrorMsg(error.message);
         return;
       }
 
       if (session?.user) {
-        console.log('[Auth Callback] Success! Redirecting...');
         setStatus('success');
         // 延迟跳转，让用户看到成功动画
         setTimeout(() => router.push('/'), 1500);
       } else {
-        console.log('[Auth Callback] No session found');
         setStatus('error');
         setErrorMsg('验证链接已失效或已过期');
       }

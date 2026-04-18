@@ -127,18 +127,27 @@ export async function POST(req: Request) {
       wasCorrected = stats.wasCorrected;
 
       if (results.length > 0) {
+        // 按 documentName 分组编号，同文档的片段用 -1 -2 标注
+        const docCounter = new Map<string, number>();
+        const docRefMap = new Map<string, string>();
+
         context = results
-          .map((r, idx) => {
+          .map((r) => {
             const meta = r.metadata as { documentName?: string };
-            return `[${idx + 1}号文档 - ${meta?.documentName || '未知文档'}]\n${r.content}`;
+            const docName = meta?.documentName || '未知文档';
+            const count = (docCounter.get(docName) || 0) + 1;
+            docCounter.set(docName, count);
+            docRefMap.set(r.id, `${docName}-${count}`);
+            return `[${docName}-${count}]\n${r.content}`;
           })
           .join('\n\n');
 
-        sources = results.map((r, idx) => ({
+        sources = results.map((r) => ({
           content: r.content.slice(0, 100) + '...',
           score: r.score,
           source: r.source,
           metadata: r.metadata,
+          docRef: docRefMap.get(r.id),
         }));
       }
     }
@@ -149,24 +158,21 @@ export async function POST(req: Request) {
 【任务】根据提供的上下文信息，准确回答用户问题
 
 【规则 - 必须遵守】
-1. 【引用强制】只要上下文包含相关信息，必须使用 [编号] 标注来源，如：根据[1号文档]、特斯拉在[2号文档]中提到
+1. 【引用强制】只要上下文包含相关信息，必须使用 [文件名-序号] 标注来源，如：根据[技术架构.md-1]、特斯拉在[部署指南.md-2]中提到
 2. 【诚实回答】上下文没有的信息，直接说"抱歉，知识库中没有相关信息"，绝不编造
 3. 【简洁作答】回答控制在200字以内，分1-3个要点，不要长篇大论
-4. 【指代理解】结合对话历史，理解"它"、"这个"等指代词指代的具体内容
-5. 【冲突处理】多个文档信息冲突时，以得分最高（[1号文档]）为准，提及差异
+4. 【意图优先】如果用户问题表述模糊、包含"它""这个"等指代词、或意图不明确，先结合上下文推断真实意图，再基于推断后的意图回答
+5. 【冲突处理】多个文档信息冲突时，以得分最高的为准，提及差异
 
 【上下文信息格式】
-[1号文档] 内容摘要
-[2号文档] 内容摘要
-（编号越小代表与问题的相关度越高）
+[文档名-序号] 内容摘要
+（同文档多片段用 -1 -2 区分，序号仅表示同一文档内的片段顺序，不代表相关度）
 
 【输出格式】
-直接回答，不需要额外格式。但如果引用了文档，必须在句子里用 [编号] 标注
+直接回答，不需要额外格式。但如果引用了文档，必须在句子里用 [文件名-序号] 标注
 
 【禁止】
-- 不要使用 --- 或 --- 分隔线
-- 不要使用大篇幅列表（超过5项）
-- 不要使用表格语法`;
+- 不要使用 --- 或 --- 分隔线`;
 
     // 如果有对话摘要或记忆上下文，追加到 system prompt
     if (summary) {

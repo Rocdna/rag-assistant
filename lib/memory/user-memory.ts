@@ -7,7 +7,7 @@
  * - 支持记忆过期自动清理
  */
 
-const MEMORY_STORAGE_KEY = 'rag_user_memory';
+const MEMORY_STORAGE_KEY_PREFIX = 'rag_user_memory';
 
 // 记忆配置
 const MEMORY_CONFIG = {
@@ -30,6 +30,8 @@ interface Fact {
   context: string;         // 在什么场景下提到的
   confidence: number;      // 置信度 0-1
   updatedAt: number;       // 更新时间
+  source?: 'user' | 'session'; // 来源：user=用户明确提供，session=会话上下文提取
+  chatId?: string;         // 关联的对话 ID（session 级事实才有）
 }
 
 /**
@@ -89,14 +91,42 @@ function cleanupExpiredMemory(memory: UserMemory): UserMemory {
 }
 
 /**
- * 从 localStorage 加载用户记忆
+ * 清理旧的 session 级事实（兼容迁移）
+ *
+ * 旧版记忆没有 source 字段，这些 facts 可能是会话级抽取的。
+ * 调用此函数可清除所有 source !== 'user' 的事实。
+ * 新增的事实通过 addFact 的 source 参数区分。
+ *
+ * @param userId 用户ID
+ * @returns 清理后保留的记忆
  */
-export function loadUserMemory(): UserMemory {
+export function cleanupContextFacts(userId?: string): UserMemory {
+  const memory = loadUserMemory(userId);
+  const before = memory.facts.length;
+
+  // 保留有明确 source 且 source !== 'session' 的事实
+  // 没有 source 字段的旧事实也一并清理（可能是会话级抽取的）
+  memory.facts = memory.facts.filter((f) => f.source === 'user');
+
+  const removed = before - memory.facts.length;
+  if (removed > 0) {
+    console.log(`[记忆清理] 移除了 ${removed} 条 session 级旧事实`);
+    saveUserMemory(memory, userId);
+  }
+
+  return memory;
+}
+
+/**
+ * 从 localStorage 加载用户记忆
+ * @param userId 用户ID，未登录时为 undefined
+ */
+export function loadUserMemory(userId?: string): UserMemory {
+  const key = `${MEMORY_STORAGE_KEY_PREFIX}_${userId || ''}`;
   try {
-    const stored = localStorage.getItem(MEMORY_STORAGE_KEY);
+    const stored = localStorage.getItem(key);
     if (stored) {
       const memory = JSON.parse(stored) as UserMemory;
-      // 验证结构并清理过期记忆
       if (memory && typeof memory === 'object') {
         return cleanupExpiredMemory(memory);
       }
@@ -109,12 +139,14 @@ export function loadUserMemory(): UserMemory {
 
 /**
  * 保存用户记忆到 localStorage
+ * @param memory 记忆对象
+ * @param userId 用户ID，未登录时为 undefined
  */
-export function saveUserMemory(memory: UserMemory): void {
+export function saveUserMemory(memory: UserMemory, userId?: string): void {
+  const key = `${MEMORY_STORAGE_KEY_PREFIX}_${userId || ''}`;
   try {
     memory.updatedAt = Date.now();
-    localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify(memory));
-    console.log(`[💾 saveUserMemory] 已保存 ${memory.facts.length} 条事实到 localStorage`);
+    localStorage.setItem(key, JSON.stringify(memory));
   } catch (e) {
     console.error('保存用户记忆失败:', e);
   }
@@ -123,24 +155,26 @@ export function saveUserMemory(memory: UserMemory): void {
 /**
  * 更新用户偏好
  */
-export function updatePreference(key: keyof UserMemory['preferences'], value: string | string[] | undefined): UserMemory {
-  const memory = loadUserMemory();
+export function updatePreference(key: keyof UserMemory['preferences'], value: string | string[] | undefined, userId?: string): UserMemory {
+  const memory = loadUserMemory(userId);
   (memory.preferences as Record<string, unknown>)[key] = value;
-  saveUserMemory(memory);
+  saveUserMemory(memory, userId);
   return memory;
 }
 
 /**
- * 添加重要事实（支持置信度）
+ * 添加重要事实（支持置信度和来源）
  */
 export function addFact(
   key: string,
   value: string,
   context: string,
-  confidence: number = 0.8
+  confidence: number = 0.8,
+  userId?: string,
+  source?: 'user' | 'session',
+  chatId?: string
 ): UserMemory {
-  console.log(`[💾 addFact] 尝试添加记忆: key="${key}", value="${value}", confidence=${confidence}`);
-  const memory = loadUserMemory();
+  const memory = loadUserMemory(userId);
   const existingIndex = memory.facts.findIndex((f) => f.key === key);
   if (existingIndex >= 0) {
     // 只有新记忆置信度更高时才更新
@@ -151,6 +185,8 @@ export function addFact(
         context,
         confidence,
         updatedAt: Date.now(),
+        source,
+        chatId,
       };
     }
   } else {
@@ -161,6 +197,8 @@ export function addFact(
       context,
       confidence,
       updatedAt: Date.now(),
+      source,
+      chatId,
     });
 
     // 限制最大数量
@@ -171,7 +209,7 @@ export function addFact(
     }
   }
 
-  saveUserMemory(memory);
+  saveUserMemory(memory, userId);
   return memory;
 }
 
@@ -181,9 +219,10 @@ export function addFact(
 export function addSessionSummary(
   topics: string[],
   outcome: string,
-  chatId: string
+  chatId: string,
+  userId?: string
 ): UserMemory {
-  const memory = loadUserMemory();
+  const memory = loadUserMemory(userId);
 
   memory.sessionSummaries.push({
     date: new Date().toISOString().split('T')[0],
@@ -198,22 +237,46 @@ export function addSessionSummary(
     memory.sessionSummaries = memory.sessionSummaries.slice(-MEMORY_CONFIG.maxSessions);
   }
 
-  saveUserMemory(memory);
+  saveUserMemory(memory, userId);
   return memory;
 }
 
 /**
- * 清空所有记忆
+ * 删除指定会话的摘要
  */
-export function clearMemory(): void {
-  localStorage.removeItem(MEMORY_STORAGE_KEY);
+export function deleteSessionSummary(chatId: string, userId?: string): void {
+  const memory = loadUserMemory(userId);
+  memory.sessionSummaries = memory.sessionSummaries.filter((s) => s.chatId !== chatId);
+  saveUserMemory(memory, userId);
+}
+
+/**
+ * 删除指定会话抽取的事实（session 级记忆）
+ */
+export function deleteFactsByChatId(chatId: string, userId?: string): void {
+  const memory = loadUserMemory(userId);
+  const before = memory.facts.length;
+  memory.facts = memory.facts.filter((f) => f.chatId !== chatId);
+  const removed = before - memory.facts.length;
+  if (removed > 0) {
+    console.log(`[记忆] 删除对话 ${chatId} 的 ${removed} 条 session 级事实`);
+    saveUserMemory(memory, userId);
+  }
+}
+
+/**
+ * 清空所有记忆（仅清当前用户的）
+ */
+export function clearMemory(userId?: string): void {
+  const key = `${MEMORY_STORAGE_KEY_PREFIX}_${userId || ''}`;
+  localStorage.removeItem(key);
 }
 
 /**
  * 生成记忆上下文（用于注入到 System Prompt）
  */
-export function generateMemoryContext(): string {
-  const memory = loadUserMemory();
+export function generateMemoryContext(userId?: string): string {
+  const memory = loadUserMemory(userId);
   const parts: string[] = [];
 
   // 用户偏好
@@ -228,20 +291,12 @@ export function generateMemoryContext(): string {
   }
 
   // 重要事实（按置信度排序，取最高的 5 个）
+  // session facts 也会进入新会话，只在删除关联对话时清除
   if (memory.facts.length > 0) {
     const topFacts = [...memory.facts].sort((a, b) => b.confidence - a.confidence).slice(0, 5);
     const factsStr = topFacts.map((f) => `${f.key}: ${f.value}`).join('，');
     if (factsStr) {
       parts.push(`用户背景：${factsStr}`);
-    }
-  }
-
-  // 过往会话主题（最近 3 个会话的不同主题）
-  if (memory.sessionSummaries.length > 0) {
-    const recentTopics = memory.sessionSummaries.slice(-3).flatMap((s) => s.topics);
-    const uniqueTopics = [...new Set(recentTopics)].slice(0, 5);
-    if (uniqueTopics.length > 0) {
-      parts.push(`历史讨论：${uniqueTopics.join('、')}`);
     }
   }
 
