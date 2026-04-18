@@ -327,8 +327,11 @@ export async function POST(req: Request) {
 
     const selectedModel = model || process.env.DEFAULT_MODEL || 'qwen3-max';
 
-    // 检查知识库状态
+    // 检查知识库状态（计时）
+    const statsStart = Date.now();
     const stats = await getUserStats(userId);
+    console.log(`[⏱️ getUserStats] 耗时: ${Date.now() - statsStart}ms`);
+
     const hasDocuments = stats.totalDocuments > 0;
 
     // 构建用户记忆上下文
@@ -411,7 +414,9 @@ async function handleNormalMode(
     toolCallCount++;
 
     // 非流式调用 LLM
+    const llmStart = Date.now();
     const { content, toolCalls } = await callLLMWithTools(conversationMessages, model);
+    console.log(`[⏱️ LLM 调用] 第 ${toolCallCount} 次，耗时: ${Date.now() - llmStart}ms`);
 
     // 如果没有工具调用，直接返回 LLM 的回答（流式）
     if (!toolCalls || toolCalls.length === 0) {
@@ -433,12 +438,15 @@ async function handleNormalMode(
     });
 
     // 并行执行工具调用
+    const toolsStart = Date.now();
     const executedTools = await Promise.all(
       toolCalls.map(async (tc: any) => {
+        const toolStart = Date.now();
         const result = await executeTool({
           name: tc.function?.name || '',
           arguments: tc.function?.arguments || '{}',
         }, userId);
+        console.log(`[⏱️ 工具 ${tc.function?.name}] 耗时: ${Date.now() - toolStart}ms`);
 
         return {
           role: 'tool' as const,
@@ -449,6 +457,7 @@ async function handleNormalMode(
         };
       })
     );
+    console.log(`[⏱️ 工具组执行] 共 ${toolCalls.length} 个，耗时: ${Date.now() - toolsStart}ms`);
 
     // 添加工具结果到消息历史
     conversationMessages.push(...executedTools);
@@ -534,7 +543,9 @@ async function runReactLoop(
     console.log(`${'='.repeat(60)}`);
 
     // 非流式调用 LLM
+    const llmStart = Date.now();
     const { content, toolCalls } = await callLLMWithTools(conversationMessages, model, signal);
+    console.log(`[⏱️ LLM 调用] 第 ${toolCallCount} 次，耗时: ${Date.now() - llmStart}ms`);
 
     // 打印 LLM 决策
     if (toolCalls && toolCalls.length > 0) {
@@ -655,7 +666,10 @@ async function runReactLoop(
       await new Promise(resolve => setTimeout(resolve, 50));
 
       // 解析参数并执行
+      const toolStart = Date.now();
       const result = await executeTool({ name: toolName, arguments: toolArgs }, userId);
+      console.log(`[⏱️ 工具 ${toolName}] 耗时: ${Date.now() - toolStart}ms`);
+
       const observationContent = result.success
         ? result.result
         : `工具执行失败: ${result.error}`;
