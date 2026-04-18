@@ -56,29 +56,22 @@ export async function executeDocumentTool(
           return { success: true, result: '（暂无文档）' };
         }
 
-        // 从 Pinecone 查询用户所有文档（分批拉取，聚合 documentName）
+        // 从 Pinecone 查询用户所有文档（v7 移除了 cursor 分页，使用大 topK 一次拉完）
         const index = (await import('@/lib/pinecone')).getIndex();
         const docMap = new Map<string, number>();
-        let cursor: string | undefined;
 
-        while (true) {
-          const result = await index.query({
-            vector: new Array(1536).fill(0),
-            topK: 1000,
-            filter: { userId: { $eq: userId } },
-            includeMetadata: true,
-            cursor,
-          });
+        const result = await index.query({
+          vector: new Array(1536).fill(0),
+          topK: 10000,
+          filter: { userId: { $eq: userId } },
+          includeMetadata: true,
+        });
 
-          for (const match of result.matches || []) {
-            const docName = match.metadata?.documentName as string | undefined;
-            if (docName) {
-              docMap.set(docName, (docMap.get(docName) || 0) + 1);
-            }
+        for (const match of result.matches || []) {
+          const docName = match.metadata?.documentName as string | undefined;
+          if (docName) {
+            docMap.set(docName, (docMap.get(docName) || 0) + 1);
           }
-
-          if (!result.pagination?.cursor) break;
-          cursor = result.pagination.cursor;
         }
 
         const docList = Array.from(docMap.entries())
