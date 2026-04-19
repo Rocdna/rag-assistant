@@ -2173,3 +2173,125 @@ body {
   opacity: 0;
   transform: translateX(-50%) translateY(10px);
 }
+
+/* =============================================== */
+/* 登录注册页面移动端适配                           */
+/* =============================================== */
+@media (max-width: 768px) {
+  .login-card {
+    padding: 16px 14px !important;
+    border-radius: 12px !important;
+    max-width: 100% !important;
+    margin: 0 8px;
+    max-height: 100dvh !important;
+    overflow-y: auto !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  .login-card::-webkit-scrollbar {
+    display: none !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .login-card {
+    max-height: 100dvh !important;
+    overflow-y: auto !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  .login-card::-webkit-scrollbar {
+    display: none !important;
+  }
+}
+
+/* 通用间距控制 */
+.login-card-title {
+  font-size: 24px;
+  margin-bottom: 20px;
+}
+
+.login-tabs {
+  margin-bottom: 20px;
+}
+
+.login-input-group {
+  margin-bottom: 14px;
+}
+
+.login-submit-btn {
+  margin-top: 12px;
+}
+
+.login-divider {
+  margin: 16px 0;
+}
+
+.login-oauth-buttons button {
+  padding: 10px;
+  font-size: 14px;
+}
+
+.login-toggle-text {
+  font-size: 12px;
+}
+
+/* 移动端覆盖 */
+@media (max-width: 768px) {
+  .login-card-title {
+    font-size: 18px !important;
+    margin-bottom: 12px !important;
+  }
+
+  .login-tabs {
+    margin-bottom: 12px !important;
+  }
+
+  .login-tabs button {
+    padding: 6px !important;
+    font-size: 12px !important;
+  }
+
+  .login-input-group {
+    margin-bottom: 8px !important;
+  }
+
+  .login-submit-btn {
+    padding: 10px !important;
+    font-size: 13px !important;
+    margin-top: 8px !important;
+  }
+
+  .login-divider {
+    margin: 12px 0 !important;
+  }
+
+  .login-oauth-buttons {
+    flex-direction: column !important;
+    gap: 6px !important;
+  }
+
+  .login-oauth-buttons button {
+    width: 100% !important;
+    padding: 8px !important;
+    font-size: 12px !important;
+  }
+
+  .login-toggle-text {
+    margin-top: 12px !important;
+    font-size: 11px !important;
+  }
+}
+
+/* 玻璃拟态卡片效果 */
+.login-card {
+  background: rgba(30, 30, 40, 0.55) !important;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}

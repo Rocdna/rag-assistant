@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-context';
+import { ParticleBackground } from '@/components/particle-background';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,6 +11,9 @@ export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState('');
@@ -18,8 +22,20 @@ export default function LoginPage() {
   // 校验状态
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [confirmPasswordError, setConfirmPasswordError] = useState('');
 
-  // 邮箱格式校验
+  // 切换登录/注册时重置表单
+  const handleTabSwitch = (login: boolean) => {
+    setIsLogin(login);
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setEmailError('');
+    setPasswordError('');
+    setConfirmPasswordError('');
+    setError('');
+    setSuccessMsg('');
+  };
   const validateEmail = (value: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!value) {
@@ -48,6 +64,20 @@ export default function LoginPage() {
     return true;
   };
 
+  // 确认密码校验
+  const validateConfirmPassword = (value: string): boolean => {
+    if (!value) {
+      setConfirmPasswordError('请再次输入密码');
+      return false;
+    }
+    if (value !== password) {
+      setConfirmPasswordError('两次输入的密码不一致');
+      return false;
+    }
+    setConfirmPasswordError('');
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -56,8 +86,9 @@ export default function LoginPage() {
     // 前端校验
     const emailValid = validateEmail(email);
     const passwordValid = validatePassword(password);
+    const confirmPasswordValid = isLogin ? true : validateConfirmPassword(confirmPassword);
 
-    if (!emailValid || !passwordValid) {
+    if (!emailValid || !passwordValid || !confirmPasswordValid) {
       return;
     }
 
@@ -83,21 +114,26 @@ export default function LoginPage() {
 
   return (
     <div style={{
-      minHeight: '100vh',
+      minHeight: '100dvh',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'var(--bg-primary)',
+      background: 'linear-gradient(135deg, #0D0D0D 0%, #1a0a2e 50%, #0D1a2e 100%)',
+      padding: '16px',
+      boxSizing: 'border-box',
+      position: 'relative',
     }}>
-      <div style={{
+      <ParticleBackground />
+
+      <div className="login-card" style={{
         width: '100%',
-        maxWidth: '380px',
-        padding: '32px',
-        borderRadius: '12px',
-        backgroundColor: 'var(--bg-secondary)',
-        border: '1px solid var(--border-subtle)',
+        maxWidth: '400px',
+        padding: '32px 28px',
+        borderRadius: '16px',
+        position: 'relative',
+        zIndex: 1,
       }}>
-        <h1 style={{
+        <h1 className="login-card-title" style={{
           fontSize: '24px',
           fontWeight: 600,
           color: 'var(--text-primary)',
@@ -107,7 +143,7 @@ export default function LoginPage() {
           RAG 知识库助手
         </h1>
 
-        <div style={{
+        <div className="login-tabs" style={{
           display: 'flex',
           marginBottom: '24px',
           borderRadius: '10px',
@@ -116,7 +152,7 @@ export default function LoginPage() {
           gap: '4px',
         }}>
           <button
-            onClick={() => setIsLogin(true)}
+            onClick={() => handleTabSwitch(true)}
             style={{
               flex: 1,
               padding: '10px',
@@ -155,7 +191,7 @@ export default function LoginPage() {
             登录
           </button>
           <button
-            onClick={() => setIsLogin(false)}
+            onClick={() => handleTabSwitch(false)}
             style={{
               flex: 1,
               padding: '10px',
@@ -196,7 +232,7 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '16px' }}>
+          <div className="login-input-group" style={{ marginBottom: '16px' }}>
             <label style={{
               display: 'block',
               fontSize: '13px',
@@ -257,7 +293,7 @@ export default function LoginPage() {
             )}
           </div>
 
-          <div style={{ marginBottom: '20px' }}>
+          <div className="login-input-group" style={{ marginBottom: '20px' }}>
             <label style={{
               display: 'block',
               fontSize: '13px',
@@ -266,41 +302,81 @@ export default function LoginPage() {
             }}>
               密码
             </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                if (passwordError) validatePassword(e.target.value);
-              }}
-              onBlur={(e) => validatePassword(e.target.value)}
-              placeholder="••••••••"
-              style={{
-                width: '100%',
-                padding: '12px',
-                borderRadius: '8px',
-                border: `1px solid ${passwordError ? 'var(--accent-red)' : 'var(--border-default)'}`,
-                backgroundColor: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-                fontSize: '14px',
-                outline: 'none',
-                boxSizing: 'border-box',
-                transition: 'border-color 0.2s, box-shadow 0.2s',
-                boxShadow: passwordError ? '0 0 0 3px rgba(239, 68, 68, 0.1)' : 'none',
-              }}
-              onFocus={(e) => {
-                if (!passwordError) {
-                  e.currentTarget.style.borderColor = 'var(--accent-green)';
-                  e.currentTarget.style.boxShadow = '0 0 0 3px rgba(16, 163, 127, 0.15)';
-                }
-              }}
-              onBlurCapture={(e) => {
-                if (!passwordError) {
-                  e.currentTarget.style.borderColor = 'var(--border-default)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }
-              }}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (passwordError) validatePassword(e.target.value);
+                }}
+                onBlur={(e) => validatePassword(e.target.value)}
+                placeholder="••••••••"
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  paddingRight: '44px',
+                  borderRadius: '8px',
+                  border: `1px solid ${passwordError ? 'var(--accent-red)' : 'var(--border-default)'}`,
+                  backgroundColor: 'var(--bg-primary)',
+                  color: 'var(--text-primary)',
+                  fontSize: '14px',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  transition: 'border-color 0.2s, box-shadow 0.2s',
+                  boxShadow: passwordError ? '0 0 0 3px rgba(239, 68, 68, 0.1)' : 'none',
+                }}
+                onFocus={(e) => {
+                  if (!passwordError) {
+                    e.currentTarget.style.borderColor = 'var(--accent-green)';
+                    e.currentTarget.style.boxShadow = '0 0 0 3px rgba(16, 163, 127, 0.15)';
+                  }
+                }}
+                onBlurCapture={(e) => {
+                  if (!passwordError) {
+                    e.currentTarget.style.borderColor = 'var(--border-default)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: 'absolute',
+                  right: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--text-tertiary)',
+                  transition: 'color 0.2s',
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.color = 'var(--text-primary)';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.color = 'var(--text-tertiary)';
+                }}
+              >
+                {showPassword ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                )}
+              </button>
+            </div>
             {passwordError && (
               <div style={{
                 fontSize: '12px',
@@ -318,6 +394,110 @@ export default function LoginPage() {
             )}
           </div>
 
+          {/* 注册时显示确认密码 */}
+          {!isLogin && (
+            <div className="login-input-group" style={{ marginBottom: '16px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '13px',
+                color: 'var(--text-secondary)',
+                marginBottom: '6px',
+              }}>
+                确认密码
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    if (confirmPasswordError) validateConfirmPassword(e.target.value);
+                  }}
+                  onBlur={(e) => validateConfirmPassword(e.target.value)}
+                  placeholder="请再次输入密码"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    paddingRight: '44px',
+                    borderRadius: '8px',
+                    border: `1px solid ${confirmPasswordError ? 'var(--accent-red)' : 'var(--border-default)'}`,
+                    backgroundColor: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    fontSize: '14px',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                    transition: 'border-color 0.2s, box-shadow 0.2s',
+                    boxShadow: confirmPasswordError ? '0 0 0 3px rgba(239, 68, 68, 0.1)' : 'none',
+                  }}
+                  onFocus={(e) => {
+                    if (!confirmPasswordError) {
+                      e.currentTarget.style.borderColor = 'var(--accent-green)';
+                      e.currentTarget.style.boxShadow = '0 0 0 3px rgba(16, 163, 127, 0.15)';
+                    }
+                  }}
+                  onBlurCapture={(e) => {
+                    if (!confirmPasswordError) {
+                      e.currentTarget.style.borderColor = 'var(--border-default)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--text-tertiary)',
+                    transition: 'color 0.2s',
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.color = 'var(--text-primary)';
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.color = 'var(--text-tertiary)';
+                  }}
+                >
+                  {showConfirmPassword ? (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                    </svg>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
+              {confirmPasswordError && (
+                <div style={{
+                  fontSize: '12px',
+                  color: 'var(--accent-red)',
+                  marginTop: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                  </svg>
+                  {confirmPasswordError}
+                </div>
+              )}
+            </div>
+          )}
+
           {error && (
             <div style={{
               padding: '10px',
@@ -326,7 +506,7 @@ export default function LoginPage() {
               border: '1px solid rgba(239, 68, 68, 0.3)',
               color: 'var(--accent-red)',
               fontSize: '13px',
-              marginBottom: '16px',
+              marginBottom: '12px',
             }}>
               {error}
             </div>
@@ -340,13 +520,14 @@ export default function LoginPage() {
               border: '1px solid rgba(16, 163, 127, 0.3)',
               color: 'var(--accent-green)',
               fontSize: '13px',
-              marginBottom: '16px',
+              marginBottom: '12px',
             }}>
               {successMsg}
             </div>
           )}
 
           <button
+            className="login-submit-btn"
             type="submit"
             disabled={loading}
             style={{
@@ -391,10 +572,10 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p
-          onClick={() => setIsLogin(!isLogin)}
+        <p className="login-toggle-text"
+          onClick={() => handleTabSwitch(!isLogin)}
           style={{
-            marginTop: '20px',
+            marginTop: '16px',
             fontSize: '13px',
             color: 'var(--accent-green)',
             textAlign: 'center',
@@ -418,10 +599,10 @@ export default function LoginPage() {
         </p>
 
         {/* 分隔线 */}
-        <div style={{
+        <div className="login-divider" style={{
           display: 'flex',
           alignItems: 'center',
-          margin: '24px 0',
+          margin: '16px 0',
         }}>
           <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border-subtle)' }} />
           <span style={{ padding: '0 12px', fontSize: '12px', color: 'var(--text-tertiary)' }}>或</span>
@@ -429,7 +610,7 @@ export default function LoginPage() {
         </div>
 
         {/* 第三方登录 */}
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div className="login-oauth-buttons" style={{ display: 'flex', gap: '12px' }}>
           <button
             onClick={async () => {
               setOauthLoading('google');
