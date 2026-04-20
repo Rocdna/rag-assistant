@@ -14,6 +14,7 @@ import { ModelSelect } from '@/components/chat/header/model-select';
 import { ContextBar } from '@/components/chat/header/context-bar';
 import { EmptyState } from '@/components/chat/message/empty-state';
 import { MobileSettingsSheet } from '@/components/chat/mobile-settings-sheet';
+import { MobileKBSelector } from '@/components/chat/mobile-kb-selector';
 import { ToastContainer, showToast } from '@/components/ui/toast';
 import { UserMenu } from '@/components/chat/header/user-menu';
 
@@ -45,7 +46,7 @@ export default function ChatPage() {
   const [mode, setMode] = useState<ChatMode>('chat');
 
   // RAG 配置
-  const [useRAG, setUseRAG] = useState(true);
+  const [useRAG, setUseRAG] = useState(false);
   const [selectedDocName, setSelectedDocName] = useState<string | null>(null);
 
   // 功能开关
@@ -279,6 +280,15 @@ export default function ChatPage() {
               >
                 ⚡
               </button>
+            )}
+
+            {/* 移动端知识库选择 */}
+            {isMobile && (
+              <MobileKBSelector
+                userId={userId ?? undefined}
+                selectedDocName={selectedDocName}
+                onChange={setSelectedDocName}
+              />
             )}
 
             {/* 模型选择 */}
