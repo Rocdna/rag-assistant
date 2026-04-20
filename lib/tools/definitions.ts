@@ -11,6 +11,7 @@ import type { ChatCompletionTool, ToolResult } from '@/types/chat';
 import { executeWeatherTool } from './weather';
 import { executeDocumentTool } from './documents';
 import { executeSearchTool } from './search';
+import { executeAmapTool } from './amap';
 
 // ============================================================
 // 工具名称枚举
@@ -31,6 +32,18 @@ export const ToolName = {
 
   // 搜索工具
   WEB_SEARCH: 'web_search',
+
+  // 高德地图工具
+  GEOCODE_ADDRESS: 'geocode_address',
+  REVERSE_GEOCODE: 'reverse_geocode',
+  DIRECTION_DRIVING: 'direction_driving',
+  DIRECTION_WALKING: 'direction_walking',
+  DIRECTION_BICYCLING: 'direction_bicycling',
+  DIRECTION_TRANSIT: 'direction_transit',
+  POI_TEXT: 'poi_text',
+  POI_AROUND: 'poi_around',
+  POI_POLYGON: 'poi_polygon',
+  INPUT_TIPS: 'input_tips',
 } as const;
 
 export type ToolNameType = typeof ToolName[keyof typeof ToolName];
@@ -206,6 +219,168 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
       },
     },
   },
+
+  // 高德地图工具
+  {
+    type: 'function',
+    function: {
+      name: ToolName.GEOCODE_ADDRESS,
+      description: '将地址转换为经纬度坐标。当用户询问某个地方的坐标、位置在哪、经纬度是多少时使用。例如："北京天安门的坐标"、"杭州西湖的经纬度"。',
+      parameters: {
+        type: 'object',
+        properties: {
+          address: {
+            type: 'string',
+            description: '详细地址，如"北京市朝阳区建国路88号"、"杭州西湖"',
+          },
+          city: {
+            type: 'string',
+            description: '可选，城市名称，缩小范围可以提高准确性，如"北京"、"杭州"',
+          },
+        },
+        required: ['address'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: ToolName.REVERSE_GEOCODE,
+      description: '将经纬度坐标转换为地址。当用户给出一个坐标并询问这个位置在哪、属于哪个区时使用。例如："116.397428, 39.908823 是什么地方"或"这个坐标在哪里"。',
+      parameters: {
+        type: 'object',
+        properties: {
+          longitude: { type: 'number', description: '经度，如 116.397428' },
+          latitude: { type: 'number', description: '纬度，如 39.908823' },
+        },
+        required: ['longitude', 'latitude'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: ToolName.DIRECTION_DRIVING,
+      description: '驾车路径规划。当用户询问怎么开车去某地、驾车路线、堵不堵时使用。需要提供起点和终点的经纬度坐标。',
+      parameters: {
+        type: 'object',
+        properties: {
+          origin: { type: 'string', description: '起点坐标，格式：经度,纬度，如"116.397428,39.908823"' },
+          destination: { type: 'string', description: '终点坐标，格式：经度,纬度' },
+          strategy: { type: 'number', description: '路径策略：0=速度优先，1=费用优先，2=距离优先，3=避开高速，4=躲避拥堵' },
+        },
+        required: ['origin', 'destination'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: ToolName.DIRECTION_WALKING,
+      description: '步行路径规划。当用户询问步行路线、怎么走过去、走路多久时使用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          origin: { type: 'string', description: '起点坐标，格式：经度,纬度' },
+          destination: { type: 'string', description: '终点坐标，格式：经度,纬度' },
+        },
+        required: ['origin', 'destination'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: ToolName.DIRECTION_BICYCLING,
+      description: '骑行路径规划。当用户询问骑行路线、怎么骑车去某地时使用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          origin: { type: 'string', description: '起点坐标，格式：经度,纬度' },
+          destination: { type: 'string', description: '终点坐标，格式：经度,纬度' },
+        },
+        required: ['origin', 'destination'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: ToolName.DIRECTION_TRANSIT,
+      description: '公交路径规划。当用户询问怎么坐公交去某地、地铁线路、公交换乘时使用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          origin: { type: 'string', description: '起点坐标，格式：经度,纬度' },
+          destination: { type: 'string', description: '终点坐标，格式：经度,纬度' },
+          city: { type: 'string', description: '城市名称，如"北京"、"杭州"' },
+          strategy: { type: 'number', description: '策略：0=最快捷，1=最经济，2=最少换乘，3=最少步行，5=不乘地铁' },
+        },
+        required: ['origin', 'destination', 'city'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: ToolName.POI_TEXT,
+      description: '关键字搜索POI。当用户搜索某个地点、餐厅、酒店、景点时使用。例如："附近有什么餐厅"、"搜索北京大学"。',
+      parameters: {
+        type: 'object',
+        properties: {
+          keywords: { type: 'string', description: '搜索关键词，如"餐厅"、"酒店"、"北京大学"' },
+          city: { type: 'string', description: '可选，搜索城市，如"北京"，省略则全国搜索' },
+        },
+        required: ['keywords'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: ToolName.POI_AROUND,
+      description: '周边搜索POI。当用户询问附近有什么、周边设施时使用。例如："附近有什么超市"、"周围500米内的银行"。',
+      parameters: {
+        type: 'object',
+        properties: {
+          location: { type: 'string', description: '中心点坐标，格式：经度,纬度' },
+          keywords: { type: 'string', description: '可选，搜索关键词' },
+          radius: { type: 'number', description: '可选，搜索半径（米），默认3000，最大50000' },
+        },
+        required: ['location'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: ToolName.POI_POLYGON,
+      description: '多边形搜索POI。在指定区域内搜索POI，适用于在某个范围（如某个大学校园、开发区）内查找。',
+      parameters: {
+        type: 'object',
+        properties: {
+          polygon: { type: 'string', description: '多边形坐标串，格式：经度1,纬度1;经度2,纬度2，如"116.3,39.9;116.5,40.0"' },
+          keywords: { type: 'string', description: '可选，搜索关键词' },
+        },
+        required: ['polygon'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: ToolName.INPUT_TIPS,
+      description: '输入提示。当用户在搜索框输入时提供自动补全建议，适用于搜索框的智能提示功能。',
+      parameters: {
+        type: 'object',
+        properties: {
+          keywords: { type: 'string', description: '输入的关键词' },
+          city: { type: 'string', description: '可选，限制城市范围' },
+        },
+        required: ['keywords'],
+      },
+    },
+  },
 ];
 
 // ============================================================
@@ -227,4 +402,16 @@ export const TOOL_EXECUTORS: Record<ToolNameType, ToolExecutor> = {
 
   // 搜索工具
   [ToolName.WEB_SEARCH]: executeSearchTool,
+
+  // 高德地图工具
+  [ToolName.GEOCODE_ADDRESS]: executeAmapTool,
+  [ToolName.REVERSE_GEOCODE]: executeAmapTool,
+  [ToolName.DIRECTION_DRIVING]: executeAmapTool,
+  [ToolName.DIRECTION_WALKING]: executeAmapTool,
+  [ToolName.DIRECTION_BICYCLING]: executeAmapTool,
+  [ToolName.DIRECTION_TRANSIT]: executeAmapTool,
+  [ToolName.POI_TEXT]: executeAmapTool,
+  [ToolName.POI_AROUND]: executeAmapTool,
+  [ToolName.POI_POLYGON]: executeAmapTool,
+  [ToolName.INPUT_TIPS]: executeAmapTool,
 };

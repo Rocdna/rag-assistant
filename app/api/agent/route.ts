@@ -8,7 +8,6 @@
 
 import OpenAI from 'openai';
 import { TOOL_DEFINITIONS, TOOL_EXECUTORS } from '@/lib/tools/definitions';
-import { getUserStats } from '@/lib/pinecone';
 import type { ToolResult } from '@/types/chat';
 
 const openai = new OpenAI({
@@ -28,6 +27,7 @@ const SYSTEM_PROMPT = `你是智能助手，擅长理解用户问题并调用合
 【你的能力】
 - 访问本地文档知识库（搜索、列表、统计）
 - 查询天气（天气预报、空气质量、预警、指数、分钟降水）
+- 地图服务（地理编码、逆地理编码）
 - 联网搜索（搜索最新新闻、实时信息）
 
 【工作方式】
@@ -38,6 +38,7 @@ const SYSTEM_PROMPT = `你是智能助手，擅长理解用户问题并调用合
 【重要规则】
 - 如果用户询问天气相关问题，必须调用天气工具（get_weather 或其他天气工具）
 - 如果用户询问文档相关问题，调用文档工具
+- 如果用户询问位置、坐标、地址相关问题（如"某地在哪里"、"某地坐标是什么"），调用地图工具
 - 如果用户没有提供位置信息（如城市名），而问题需要位置（如天气查询），先询问用户位置
 - 如果知识库为空且用户询问文档内容，告知用户先上传文档
 - 回答要简洁，自然，像对话一样
@@ -77,7 +78,15 @@ const REACT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 行动：get_weather {"location": "上海"}
 观察：上海今天晴朗，28度
 思考：已获取天气信息，可以回答了
-最终回答：上海今天天气晴朗，气温28度...`;
+最终回答：上海今天天气晴朗，气温28度...
+
+【示例：地图查询】
+用户：杭州西湖的坐标是什么？
+思考：用户想知道杭州西湖的经纬度坐标，需要调用地理编码工具
+行动：geocode_address {"address": "杭州西湖", "city": "杭州"}
+观察：坐标：120.148231, 30.147412
+思考：已获取坐标信息，可以回答了
+最终回答：杭州西湖的坐标是经度 120.148231，纬度 30.147412...`;
 
 // ============================================================
 // 工具执行
@@ -327,24 +336,13 @@ export async function POST(req: Request) {
 
     const selectedModel = model || process.env.DEFAULT_MODEL || 'qwen3-max';
 
-    // 检查知识库状态（计时）
-    const statsStart = Date.now();
-    const stats = await getUserStats(userId);
-    console.log(`[⏱️ getUserStats] 耗时: ${Date.now() - statsStart}ms`);
-
-    const hasDocuments = stats.totalDocuments > 0;
-
     // 构建用户记忆上下文
     const memorySection = memoryContext
       ? `\n\n【用户记忆上下文】\n${memoryContext}`
       : '';
 
     // 根据是否启用 ReAct 模式选择系统提示
-    const systemPrompt = (react ? REACT_SYSTEM_PROMPT : SYSTEM_PROMPT) +
-      (hasDocuments
-        ? `\n\n【当前知识库状态】\n已有 ${stats.totalDocuments} 个文档，总计 ${stats.totalChunks} 个片段。`
-        : `\n\n【当前知识库状态】\n知识库为空，没有上传任何文档。`) +
-      memorySection;
+    const systemPrompt = (react ? REACT_SYSTEM_PROMPT : SYSTEM_PROMPT) + memorySection;
 
     // 构建消息历史
     const conversationMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -392,7 +390,7 @@ export async function POST(req: Request) {
 }
 
 /**
- * 普通模式：直接返回结果，不展示思考过程
+ * 普通模式：带工具调用的流式返回
  */
 async function handleNormalMode(
   conversationMessages: OpenAI.Chat.ChatCompletionMessageParam[],
@@ -400,74 +398,127 @@ async function handleNormalMode(
   signal: AbortSignal | undefined,
   userId: string
 ): Promise<Response> {
+  const encoder = new TextEncoder();
+  let controller: ReadableStreamDefaultController;
+  let isDone = false;
+
+  const pushToken = (content: string) => {
+    if (!isDone && controller) {
+      controller.enqueue(encoder.encode('data: ' + JSON.stringify({
+        choices: [{ delta: { content } }]
+      }) + '\n\n'));
+    }
+  };
+
+  const done = () => {
+    if (!isDone && controller) {
+      isDone = true;
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      controller.close();
+    }
+  };
+
+  const stream = new ReadableStream({
+    start(c) {
+      controller = c;
+    },
+    cancel() {
+      isDone = true;
+    },
+  });
+
+  // 启动处理循环
+  runNormalModeLoop(conversationMessages, model, signal, userId, pushToken, done).catch((error) => {
+    if (error instanceof Error && error.name !== 'AbortError') {
+      console.error('Normal Mode 错误:', error);
+    }
+    done();
+  });
+
+  return new Response(stream, {
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
+
+async function runNormalModeLoop(
+  conversationMessages: OpenAI.Chat.ChatCompletionMessageParam[],
+  model: string,
+  signal: AbortSignal | undefined,
+  userId: string,
+  pushToken: (content: string) => void,
+  done: () => void
+) {
   let toolCallCount = 0;
 
   while (toolCallCount < MAX_TOOL_CALLS) {
-    // 检查是否已取消
     if (signal?.aborted) {
-      return new Response('【已停止生成】', {
-        status: 200,
-        headers: { 'Content-Type': 'text/plain' },
-      });
+      pushToken('【已停止生成】');
+      done();
+      return;
     }
 
     toolCallCount++;
 
-    // 非流式调用 LLM
+    // 非流式调用 LLM（决策）
     const llmStart = Date.now();
     const { content, toolCalls } = await callLLMWithTools(conversationMessages, model);
     console.log(`[⏱️ LLM 调用] 第 ${toolCallCount} 次，耗时: ${Date.now() - llmStart}ms`);
 
-    // 如果没有工具调用，直接返回 LLM 的回答（流式）
+    // 无工具调用：直接流式返回 LLM 回答
     if (!toolCalls || toolCalls.length === 0) {
       if (content) {
-        return streamLLMResponse(conversationMessages, model, signal);
+        // 流式返回 LLM 内容
+        const stream = await openai.chat.completions.create({
+          model,
+          messages: conversationMessages,
+          stream: true,
+          max_tokens: 4096,
+        });
+
+        for await (const chunk of stream) {
+          if (signal?.aborted) break;
+          const token = chunk.choices[0]?.delta?.content;
+          if (token) pushToken(token);
+        }
+      } else {
+        pushToken('抱歉，我没有理解您的问题，请重试。');
       }
-      // LLM 没有生成内容，结束
-      const fallback = '抱歉，我没有理解您的问题，请重试。';
-      return new Response(createTextStream(fallback), {
-        headers: { 'Content-Type': 'text/event-stream' },
-      });
+      done();
+      return;
     }
 
-    // 添加 LLM 的 assistant 消息
+    // 有工具调用：添加工具调用消息
     conversationMessages.push({
       role: 'assistant',
       content: content || '',
       tool_calls: toolCalls,
     });
 
-    // 并行执行工具调用
-    const toolsStart = Date.now();
+    // 并行执行工具
     const executedTools = await Promise.all(
       toolCalls.map(async (tc: any) => {
+        const toolName = tc.function?.name || '';
+        const toolArgs = tc.function?.arguments || '{}';
+        console.log(`[🔧 工具调用] ${toolName} 参数: ${toolArgs}`);
+
         const toolStart = Date.now();
-        const result = await executeTool({
-          name: tc.function?.name || '',
-          arguments: tc.function?.arguments || '{}',
-        }, userId);
-        console.log(`[⏱️ 工具 ${tc.function?.name}] 耗时: ${Date.now() - toolStart}ms`);
+        const result = await executeTool({ name: toolName, arguments: toolArgs }, userId);
+        console.log(`[⏱️ 工具 ${toolName}] 耗时: ${Date.now() - toolStart}ms, 结果: ${result.success ? '成功' : '失败'}`);
+        console.log(`[📤 工具返回内容] ${result.result}`);
 
         return {
           role: 'tool' as const,
           tool_call_id: tc.id,
-          content: result.success
-            ? result.result
-            : `【工具执行错误】${result.error}`,
+          content: result.success ? result.result : `【工具执行错误】${result.error}`,
         };
       })
     );
-    console.log(`[⏱️ 工具组执行] 共 ${toolCalls.length} 个，耗时: ${Date.now() - toolsStart}ms`);
 
-    // 添加工具结果到消息历史
     conversationMessages.push(...executedTools);
   }
 
-  // 达到最大工具调用次数
-  const finalResponse = '工具调用次数过多，请重试。';
-  return new Response(createTextStream(finalResponse), {
-    headers: { 'Content-Type': 'text/event-stream' },
-  });
+  pushToken('工具调用次数过多，请重试。');
+  done();
 }
 
 /**
