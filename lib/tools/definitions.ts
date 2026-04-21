@@ -88,7 +88,9 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
       description: '列出本地知识库中所有已上传的文档名称和数量。当用户询问"有哪些文档"、"列出手册"时使用。',
       parameters: {
         type: 'object',
-        properties: {},
+        properties: {
+          _placeholder: { type: 'string', description: '占位参数（保留字段）' },
+        },
         required: [],
       },
     },
@@ -100,7 +102,9 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
       description: '获取本地知识库的统计信息，包括文档数量、片段数量、最后更新时间。当用户询问"知识库有多少内容"时使用。',
       parameters: {
         type: 'object',
-        properties: {},
+        properties: {
+          _placeholder: { type: 'string', description: '占位参数（保留字段）' },
+        },
         required: [],
       },
     },
@@ -176,10 +180,10 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
           },
           type: {
             type: 'string',
-            description: '可选，指数类型，如"3"表示穿衣指数',
+            description: '指数类型，多个用英文,分割，如"3"表示穿衣指数，"2"表示洗车指数，"5"表示旅游指数。常见类型：1=运动指数，2=洗车指数，3=穿衣指数，4=紫外线指数，5=旅游指数，6=感冒指数，9=划船指数。不传则返回所有指数。',
           },
         },
-        required: ['location'],
+        required: ['location', 'type'],
       },
     },
   },
@@ -250,8 +254,8 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          longitude: { type: 'number', description: '经度，如 116.397428' },
-          latitude: { type: 'number', description: '纬度，如 39.908823' },
+          longitude: { type: 'string', description: '经度，如 116.397428' },
+          latitude: { type: 'string', description: '纬度，如 39.908823' },
         },
         required: ['longitude', 'latitude'],
       },

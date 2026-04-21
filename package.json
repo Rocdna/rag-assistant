@@ -11,6 +11,7 @@
     "test:run": "vitest run"
   },
   "dependencies": {
+    "@amap/amap-jsapi-loader": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@pinecone-database/pinecone": "^7.1.0",
     "@supabase/auth-helpers-nextjs": "^0.15.0",

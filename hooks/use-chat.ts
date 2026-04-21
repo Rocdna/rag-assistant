@@ -5,12 +5,14 @@
  * - 对话历史管理（创建、切换、删除）
  * - 消息状态管理
  * - 聊天设置（模型选择）
+ * - 用户定位（按需获取）
  */
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Chat, ChatMessage } from '@/types/chat';
 import { generateId } from '@/lib/utils';
 import { generateMemoryContext, addFact, deleteSessionSummary, deleteFactsByChatId } from '@/lib/memory';
+import { useUserLocation, needLocation, formatLocationDesc } from './use-user-location';
 
 // 记忆压缩配置
 const COMPRESSION_ROUND_THRESHOLD = 10;  // 超过多少轮对话时触发压缩
@@ -173,9 +175,11 @@ export function useChat(userId?: string) {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('qwen3-max-preview');
+  const [selectedModel, setSelectedModel] = useState('qwen3-max');
   // AbortController ref，用于取消 fetch 请求
   const abortControllerRef = useRef<AbortController | null>(null);
+  // 用户定位
+  const { location: userLocation, getLocation, status: locationStatus } = useUserLocation();
 
   // 使用 ref 存储 chats 最新值，避免 handleSubmit 依赖数组问题
   const chatsRef = useRef<Chat[]>([]);
@@ -378,6 +382,15 @@ export function useChat(userId?: string) {
         // 加载用户记忆上下文
         const memoryContext = generateMemoryContext(userId);
 
+        // 按需获取用户位置（仅 Agent 模式下需要）
+        let resolvedUserLocation: string | undefined;
+        if (agent === true && needLocation(input.trim())) {
+          const loc = await getLocation();
+          if (loc) {
+            resolvedUserLocation = formatLocationDesc(loc);
+          }
+        }
+
         if (agent === true) {
           // Agent API - react 参数控制是否展示思考过程
           apiEndpoint = '/api/agent';
@@ -388,6 +401,7 @@ export function useChat(userId?: string) {
             react: react === true, // 传递 react 参数
             summary: existingSummary || undefined,
             memoryContext: memoryContext || undefined,
+            userLocation: resolvedUserLocation,
           };
         } else if (useRAG) {
           // RAG API
@@ -605,6 +619,7 @@ export function useChat(userId?: string) {
     input,
     isLoading,
     selectedModel,
+    userLocation,
     createChat,
     switchChat,
     deleteChat,

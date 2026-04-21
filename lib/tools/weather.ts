@@ -376,9 +376,11 @@ export async function executeWeatherTool(
 
       case 'get_weather_indices': {
         const days = (args.days as string) || '1d'; // 默认1天预报
-        const data = await callQWeatherAPI(`/v7/indices/${days}`, {
-          location: locationId,
-        });
+        const params: Record<string, string> = { location: locationId };
+        if (args.type) {
+          params.type = args.type as string;
+        }
+        const data = await callQWeatherAPI(`/v7/indices/${days}`, params);
         return { success: true, result: formatIndicesResponse(data, locationInfo.name) };
       }
 

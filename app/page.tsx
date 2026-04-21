@@ -35,6 +35,7 @@ export default function ChatPage() {
     handleInputChange,
     setSelectedModel,
     cancel,
+    userLocation,
   } = useChat(userId ?? undefined);
 
   const isMobile = useIsMobile();
@@ -377,7 +378,7 @@ export default function ChatPage() {
             onUploadClick={handleUploadClick}
           />
         ) : (
-          <MessageList messages={messages} isLoading={isLoading} />
+          <MessageList messages={messages} isLoading={isLoading} userLocation={userLocation} />
         )}
 
         {/* 隐藏的文件输入框 */}

@@ -1,101 +1,16 @@
 'use client';
 
-import React, { useRef, useEffect, useState, memo } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import React, { useRef, useEffect, useState } from 'react';
+import { MessageItem } from './message/message-item';
 import type { ChatMessage } from '@/types/chat';
-// 文档引用高亮插件：把 [文件名-序号] 转成 mdast strong 节点
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const remarkDocRef = () => (tree: any) => {
-  const walk = (nodes: any[]) => {
-    for (let i = 0; i < nodes.length; i++) {
-      const node = nodes[i];
-      if (node.type === 'text' && node.value) {
-        const text = node.value;
-        if (/\[.+?-\d+\]/.test(text)) {
-          const parts = text.split(/(\[[^\]]+?\-\d+\])/g);
-          if (parts.length > 1) {
-            // strong 节点是 mdast 的emphasis类型，带 children
-            const newNodes: any[] = [];
-            for (const part of parts) {
-              if (/\[.+?-\d+\]/.test(part)) {
-                newNodes.push({ type: 'strong', children: [{ type: 'text', value: part }] });
-              } else {
-                newNodes.push({ type: 'text', value: part });
-              }
-            }
-            nodes.splice(i, 1, ...newNodes);
-            i += newNodes.length - 1;
-          }
-        }
-      }
-      if (node.children) {
-        walk(node.children);
-      }
-    }
-  };
-  walk(tree.children);
-};
 
 interface MessageListProps {
   messages: ChatMessage[];
   isLoading?: boolean;
+  userLocation?: { lng: number; lat: number } | null;
 }
 
-// 单条消息组件，用 memo 避免不必要的重渲染
-const MessageItem = memo(function MessageItem({
-  message,
-  isLoading,
-}: {
-  message: ChatMessage;
-  isLoading?: boolean;
-}) {
-  return (
-    <div className={`message ${message.role}`}>
-      <div className="message-avatar">
-        {message.role === 'user' ? '👤' : '🤖'}
-      </div>
-      <div className="message-content">
-        {message.role === 'assistant' ? (
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkDocRef]}
-            components={{
-              strong: ({ children }) => (
-                <strong style={{ color: 'var(--accent)', fontWeight: 600 }}>{children}</strong>
-              ),
-              code: ({ className, children, ...props }) => {
-                const isInline = !className;
-                return isInline ? (
-                  <code {...props}>{children}</code>
-                ) : (
-                  <pre className={className}>
-                    <code>{children}</code>
-                  </pre>
-                );
-              },
-              hr: () => (
-                <hr
-                  style={{
-                    border: 'none',
-                    borderTop: '1px dashed var(--border-color)',
-                    margin: '12px 0',
-                    opacity: 0.5,
-                  }}
-                />
-              ),
-            }}
-          >
-            {message.content || (isLoading ? '思考中...' : '')}
-          </ReactMarkdown>
-        ) : (
-          message.content
-        )}
-      </div>
-    </div>
-  );
-});
-
-export function MessageList({ messages, isLoading }: MessageListProps) {
+export function MessageList({ messages, isLoading, userLocation }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const prevIsLoadingRef = useRef(false);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
@@ -164,6 +79,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
           key={message.id}
           message={message}
           isLoading={isLoading}
+          userLocation={userLocation}
         />
       ))}
     </div>

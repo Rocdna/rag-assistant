@@ -28,6 +28,13 @@
 - [x] **跨会话记忆** — LLM 智能抽取 + localStorage 持久化
 - [x] **记忆压缩** — 对话过长自动摘要
 
+### Agent 工具集
+- [x] **天气查询** — 天气预报、空气质量、预警
+- [x] **地图服务** — 地理编码、逆地理编码、POI 搜索
+- [x] **路线规划** — 驾车、步行、骑行、公交
+- [x] **用户定位** — 按需获取当前位置（浏览器 Geolocation API）
+- [x] **联网搜索** — 实时搜索互联网
+
 ## 技术栈
 
 | 模块 | 技术 |
@@ -43,14 +50,15 @@
 ```
 app/
 ├── api/
-│   ├── chat/route.ts       # 普通聊天
-│   ├── upload/route.ts     # 文件上传
-│   ├── index/route.ts      # 文档索引
-│   ├── rag/route.ts        # RAG 问答
-│   ├── agent/route.ts      # Agent 问答
-│   ├── delete/route.ts     # 删除文档
-│   ├── delete-all/route.ts # 清空所有文档
-│   └── documents/route.ts  # Documents CRUD
+│   ├── chat/route.ts          # 普通聊天
+│   ├── upload/route.ts        # 文件上传
+│   ├── index/route.ts         # 文档索引
+│   ├── rag/route.ts           # RAG 问答
+│   ├── agent/route.ts        # Agent 问答
+│   ├── delete/route.ts        # 删除文档
+│   ├── delete-all/route.ts    # 清空所有文档
+│   ├── documents/route.ts      # Documents CRUD
+│   └── amap-proxy/[...path]/route.ts  # 高德地图 API 代理
 ├── login/page.tsx          # 登录/注册页
 ├── auth/callback/          # OAuth 回调
 ├── page.tsx                # 主页面
@@ -99,7 +107,11 @@ lib/
 
 hooks/
 ├── use-chat.ts             # 聊天状态管理
-└── use-document-index.ts   # 文档上传/索引管理
+├── use-document-index.ts  # 文档上传/索引管理
+└── use-user-location.ts  # 用户定位管理
+
+components/map/
+└── amap-component.tsx     # 高德地图组件
 ```
 
 ## 环境变量
@@ -112,13 +124,20 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 # LLM
 OPENAI_API_KEY=your-api-key
 OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-DEFAULT_MODEL=qwen3-max-preview
+DEFAULT_MODEL=qwen3-max
 MEMORY_EXTRACT_MODEL=qwen-turbo
 EMBEDDING_MODEL=text-embedding-v2
 
 # Pinecone
 PINECONE_API_KEY=your-pinecone-key
 PINECONE_INDEX=rag-assistant
+
+# 高德地图
+AMAP_API_KEY=your-amap-key
+AMAP_API_UI_KEY=your-amap-ui-key
+AMAP_SECRET=your-amap-secret
+NEXT_PUBLIC_AMAP_UI_KEY=your-amap-ui-key
+NEXT_PUBLIC_AMAP_SECRET=your-amap-secret
 ```
 
 ## 快速开始
@@ -193,6 +212,47 @@ pnpm dev
 │ ✨ 最终回答                                           │
 │    杭州今天天气晴朗，气温28℃，适合外出活动。          │
 └─────────────────────────────────────────────────────┘
+```
+
+## 地图功能
+
+地图功能集成高德地图 JS API v2.0，支持在对话中显示位置和路线。
+
+### 功能列表
+
+| 功能 | 触发方式 | 效果 |
+|------|---------|------|
+| 坐标查询 | "北京天安门的坐标是什么" | 显示标记点 |
+| 用户定位 | "附近有什么酒店" | 蓝色脉动圆点标记用户位置 |
+| POI 标记 | "附近有什么酒店" | 紫色标记显示搜索结果 |
+| 路线规划 | "从A到B怎么走" | 显示路线 + 起终点标记 |
+
+### 标记类型
+
+| 样式 | 含义 |
+|------|------|
+| 🔵 蓝色脉动圆点 | 用户当前位置 |
+| 🟢 绿色"起" | 路线起点 |
+| 🔴 红色"终" | 路线终点 |
+| 🟣 紫色 📍 | POI 地点（点击显示详情） |
+
+### 用户定位机制
+
+- **按需获取**：仅当问题涉及位置时（"附近"、"从这里"等）才请求定位
+- **缓存机制**：定位结果缓存 30 分钟，避免重复请求
+- **隐私保护**：需要用户授权，浏览器会弹出授权提示
+
+### 相关文件
+
+```
+components/map/
+├── amap-component.tsx   # 地图组件
+
+hooks/
+├── use-user-location.ts # 用户定位 Hook
+
+app/api/
+└── amap-proxy/          # 高德地图 JS API 安全代理
 ```
 
 ## 待扩展功能
