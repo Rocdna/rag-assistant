@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     console.log(`[入口] summary: ${summary ? '有 (' + summary.slice(0, 50) + '...)' : '无'}`);
     console.log(`[入口] memoryContext: ${memoryContext ? '有 (' + memoryContext.slice(0, 50) + '...)' : '无'}`);
 
-    const selectedModel = model || process.env.DEFAULT_MODEL || 'qwen3-max';
+    const selectedModel = model || process.env.DEFAULT_MODEL || 'qwen3.6-flash';
     const enableThinking = thinking === true;
     const enableWebSearch = webSearch === true;
 

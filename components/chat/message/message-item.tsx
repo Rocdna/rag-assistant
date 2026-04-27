@@ -11,7 +11,7 @@
 import React, { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { AMapComponent, parseCoordinatesFromText, parseRouteFromText } from '@/components/map/amap-component';
+import { AMapComponent, parseCoordinatesFromText, parseRouteFromText, type Marker, type RouteData } from '@/components/map/amap-component';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import type { ChatMessage } from '@/types/chat';
 
@@ -48,8 +48,8 @@ const remarkDocRef = () => (tree: any) => {
 };
 
 interface MapData {
-  markers: Array<{ lng: number; lat: number; title?: string }>;
-  route?: { start: [number, number]; end: [number, number] };
+  markers: Marker[];
+  route?: RouteData;
   center?: [number, number];
 }
 
@@ -203,7 +203,6 @@ export function MessageItem({
               userLocation={userLocation || undefined}
               height={isMobile ? '350px' : '400px'}
               center={mapData.center}
-              height={isMobile ? '350px' : '400px'}
               zoom={13}
             />
           </div>

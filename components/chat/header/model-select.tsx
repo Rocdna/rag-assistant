@@ -9,11 +9,11 @@ interface ModelOption {
 }
 
 const models: ModelOption[] = [
-  { value: 'qwen3-max', label: 'Qwen3 Max', desc: '最强 Qwen 模型，适合复杂推理和长文本理解' },
-  { value: 'qwen3-max-preview', label: 'Qwen3 Max Preview', desc: 'Qwen3 Max 预览版，提前体验新能力' },
+  { value: 'qwen3.6-max-preview', label: 'Qwen3.6 Max Preview', desc: 'Qwen3.6 旗舰预览版，复杂推理与长文本理解' },
   { value: 'qwen3.6-plus', label: 'Qwen3.6 Plus', desc: '高性价比全能模型，兼顾速度与效果' },
-  { value: 'qwen-math-turbo', label: 'Qwen Math Turbo', desc: '专注数学和逻辑推理，优化加速版本' },
-  { value: 'glm-5', label: 'GLM-5', desc: 'GLM-5 模型，支持多场景任务' },
+  { value: 'qwen3.6-flash', label: 'Qwen3.6 Flash', desc: '极速响应，适合日常轻量任务' },
+  { value: 'glm-5.1', label: 'GLM-5.1', desc: 'GLM-5.1 模型，支持多场景任务' },
+  { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', desc: 'DeepSeek 旗舰模型，深度推理与知识密集型任务' },
 ];
 
 interface ModelSelectProps {

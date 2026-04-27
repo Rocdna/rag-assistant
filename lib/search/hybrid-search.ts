@@ -60,7 +60,7 @@ export async function hybridSearchWithHyDE(
     documentName,
     useHyDE = false,
     useHybrid = false,
-    model = 'qwen3-max',
+    model = 'qwen3.6-flash',
     userId,
   } = options;
 

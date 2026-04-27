@@ -73,7 +73,7 @@ export async function evaluateToolResult(
 
   try {
     const response = await openai.chat.completions.create({
-      model: process.env.DEFAULT_MODEL || 'qwen3-max',
+      model: process.env.DEFAULT_MODEL || 'qwen3.6-flash',
       messages: [
         {
           role: 'system',

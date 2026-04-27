@@ -14,14 +14,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 
-interface Marker {
+export interface Marker {
   lng: number;
   lat: number;
   title?: string;
   type?: 'user' | 'poi' | 'start' | 'end';  // 标记类型
 }
 
-interface RouteData {
+export interface RouteData {
   type: 'driving' | 'walking' | 'riding' | 'transit';
   start: [number, number];
   end: [number, number];
@@ -100,7 +100,7 @@ export function AMapComponent({
     const loadAMap = async () => {
       try {
         // 安全配置
-        window._AMapSecurityConfig = {
+        (window as any)._AMapSecurityConfig = {
           securityJsCode: process.env.NEXT_PUBLIC_AMAP_SECRET || '',
         };
 

@@ -304,7 +304,7 @@ export async function POST(req: Request) {
       return Response.json({ error: '问题不能为空' }, { status: 400 });
     }
 
-    const selectedModel = model || process.env.DEFAULT_MODEL || 'qwen3-max';
+    const selectedModel = model || process.env.DEFAULT_MODEL || 'qwen3.6-flash';
 
     // 构建用户记忆上下文
     const memorySection = memoryContext

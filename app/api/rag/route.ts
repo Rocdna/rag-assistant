@@ -58,7 +58,7 @@ export async function POST(req: Request) {
       return Response.json({ error: '问题不能为空' }, { status: 400 });
     }
 
-    const selectedModel = model || process.env.DEFAULT_MODEL || 'qwen3-max';
+    const selectedModel = model || process.env.DEFAULT_MODEL || 'qwen3.6-flash';
     const topKCount = topK || 5;
     const enableThinking = thinking === true;
     const enableWebSearch = webSearch === true;

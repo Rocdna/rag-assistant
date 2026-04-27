@@ -49,7 +49,7 @@ async function generateSummary(
     .join('\n\n');
 
   const response = await openai.chat.completions.create({
-    model: model || process.env.DEFAULT_MODEL || 'qwen3-max',
+    model: model || process.env.DEFAULT_MODEL || 'qwen3.6-flash',
     messages: [
       {
         role: 'system',
@@ -92,7 +92,7 @@ export async function POST(req: Request) {
       return Response.json({ error: '消息列表不能为空' }, { status: 400 });
     }
 
-    const selectedModel = model || process.env.DEFAULT_MODEL || 'qwen3-max';
+    const selectedModel = model || process.env.DEFAULT_MODEL || 'qwen3.6-flash';
     const result = await generateSummary(messages, selectedModel);
 
     console.log(`[✅ 摘要生成完成] summary 长度: ${result.summary.length}`);

@@ -13,6 +13,7 @@ import type { Chat, ChatMessage } from '@/types/chat';
 import { generateId } from '@/lib/utils';
 import { generateMemoryContext, addFact, deleteSessionSummary, deleteFactsByChatId } from '@/lib/memory';
 import { useUserLocation, needLocation, formatLocationDesc } from './use-user-location';
+import { showToast } from '@/components/ui/toast';
 
 // 记忆压缩配置
 const COMPRESSION_ROUND_THRESHOLD = 10;  // 超过多少轮对话时触发压缩
@@ -137,7 +138,11 @@ async function extractAndSaveMemories(messages: ChatMessage[], model: string, us
     });
 
     if (!response.ok) {
-      console.error('[记忆] 抽取 API 失败:', response.status);
+      const errorData = await response.json().catch(() => ({}));
+      const errorMsg = errorData?.error || `API 错误 (${response.status})`;
+      console.error('[记忆] 抽取 API 失败:', errorMsg);
+      // 友好错误提示（屏蔽 API 配额耗尽等技术细节）
+      showToast('记忆功能暂时不可用，请稍后再试', 'error');
       return 0;
     }
 
@@ -175,7 +180,7 @@ export function useChat(userId?: string) {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('qwen3-max');
+  const [selectedModel, setSelectedModel] = useState('qwen3.6-flash');
   // AbortController ref，用于取消 fetch 请求
   const abortControllerRef = useRef<AbortController | null>(null);
   // 用户定位
